@@ -330,7 +330,7 @@ def cons_lig_pock_graph_with_spatial_context(ligand, pocket, add_fea=2, theta=5,
     # print(edge_index_i)
     # print(edge_index_j)
     edge_index = np.concatenate([edge_index_i, edge_index_j], axis=0)
-    print(edge_index)
+    # print(edge_index)
     edge_feat_3d = get_3d_feature(edge_index, coords)
     edge_feat_3d[np.isinf(edge_feat_3d)] = np.nan
     edge_feat_3d[np.isnan(edge_feat_3d)] = 0
@@ -383,7 +383,7 @@ def process_dataset(core_path, refined_path, dataset_name, output_path, cutoff):
         pocket = (v['pock_fea'], v['pock_co'], v['pock_atoms'], v['pock_eg'])
         # try:
         graph = cons_lig_pock_graph_with_spatial_context(ligand, pocket, add_fea=3, theta=cutoff, keep_pock=False, pocket_spatial=True) ######在这个函数里把dataset.py里的移过去就好了？
-        print(graph)
+        # print(graph)
         cofeat, pk = v['type_pair'], v['pk']
         graph = list(graph) + [cofeat]
         if k in core_set_list:
