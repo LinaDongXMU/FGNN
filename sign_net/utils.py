@@ -8,6 +8,7 @@ class EVDTransform(object):
     def __init__(self, norm=None):
         super().__init__()
         self.norm = norm
+        
     def __call__(self, data):
         D, V = EVD_Laplacian(data, self.norm)
         data.eigen_values = D
