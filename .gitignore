@@ -1,3 +1,5 @@
 /data
 /sign_net/__pycache__
-/sign_net/PDBBind_2016
+/sign_net/data
+/sign_net/process/__pycache__
+/sign_net/results
