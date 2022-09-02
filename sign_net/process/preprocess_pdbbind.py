@@ -418,7 +418,7 @@ def pocket_mol2(path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path_core', type=str, default='../data/coreset')
+    parser.add_argument('--data_path_core', type=str, default='../data/core-set')
     parser.add_argument('--data_path_refined', type=str, default='../data/refined-set')
     parser.add_argument('--output_path', type=str, default='../data/')
     parser.add_argument('--dataset_name', type=str, default='pdbbind2016')
