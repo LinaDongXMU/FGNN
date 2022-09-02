@@ -1,21 +1,21 @@
 """
 Preprocessing code for the protein-ligand complex.
 """
-
-from concurrent.futures import process
+import argparse
 import os
 import pickle
-from tqdm import tqdm
-import pandas as pd
+import warnings
+from functools import partial
+
 import numpy as np
-import argparse
 import openbabel
 from openbabel import pybel
+from scipy.spatial import distance, distance_matrix
+
+warnings.filterwarnings("ignore")
 from featurizer import Featurizer
-from scipy.spatial import distance_matrix
-from functools import partial
-from scipy.spatial import distance
 from utils import *
+
 
 def pocket_atom_num_from_mol2(name, path): # 输入为pdbid和路径
     n = 0
@@ -345,26 +345,14 @@ def random_split(dataset_size, split_ratio=1, seed=0, shuffle=True):
     return train_idx, valid_idx
 
 
-def process_dataset(refined_lst, core_lst, path, dataset_name, output_path, cutoff):
-    # core_set_list = [x for x in os.listdir(core_path) if len(x) == 4]
-    # refined_set_list = [x for x in os.listdir(refined_path) if len(x) == 4]
-    # path = refined_path
+def process_dataset(protein_name, core_lst, path, cutoff):
     # atomic sets for long-range interactions
     atom_types = [6,7,8,9,15,16,17,35,53]
     atom_types_ = [6,7,8,16]
     # atomic feature generation
     featurizer = Featurizer(save_molecule_codes=False)
     processed_dict = {}
-    # for name in refined_lst:
-    #     print(name)
-    #     if len(name) != 4:
-    #         continue
-    #     print(path)
-    #     print(f'name: {name}')
-    #     print(featurizer)
-    processed_dict[refined_lst] = gen_feature(path, refined_lst, featurizer)
-    # print(processed_dict)
-    # interaction features
+    processed_dict[protein_name] = gen_feature(path, protein_name, featurizer)
     processed_dict = pairwise_atomic_types(path, processed_dict, atom_types, atom_types_)
     
     # load pka (binding affinity) data
@@ -380,20 +368,20 @@ def process_dataset(refined_lst, core_lst, path, dataset_name, output_path, cuto
     for k, v in data_dict.items():
         ligand = (v['lig_fea'], v['lig_co'], v['lig_atoms'], v['lig_eg'])
         pocket = (v['pock_fea'], v['pock_co'], v['pock_atoms'], v['pock_eg'])
-        # try:
-        graph = cons_lig_pock_graph_with_spatial_context(ligand, pocket, add_fea=3, theta=cutoff, keep_pock=False, pocket_spatial=True) ######在这个函数里把dataset.py里的移过去就好了？
-        cofeat, pk = v['type_pair'], v['pk']
-        graph = list(graph) + [cofeat]
-        if k in core_lst:
-            core_id.append(k)
-            core_data.append(graph)
-            core_pk.append(pk)
-            continue
-        refined_id.append(k)
-        refined_data.append(graph)
-        refined_pk.append(pk)
-        # except:
-            # fault.append(k)
+        try:
+            graph = cons_lig_pock_graph_with_spatial_context(ligand, pocket, add_fea=3, theta=cutoff, keep_pock=False, pocket_spatial=True) ######在这个函数里把dataset.py里的移过去就好了？
+            cofeat, pk = v['type_pair'], v['pk']
+            graph = list(graph) + [cofeat]
+            if k in core_lst:
+                core_id.append(k)
+                core_data.append(graph)
+                core_pk.append(pk)
+                continue
+            refined_id.append(k)
+            refined_data.append(graph)
+            refined_pk.append(pk)
+        except:
+            fault.append(k)
     # split train and valid
     train_idxs, valid_idxs = random_split(len(refined_data), split_ratio=1, seed=2020, shuffle=True)
     train_i = [refined_id[i] for i in train_idxs]
@@ -407,10 +395,7 @@ def process_dataset(refined_lst, core_lst, path, dataset_name, output_path, cuto
     test = (core_id, core_data, core_pk)
     return train, valid, test
 
-def write_pickle(train, valid, test):
-    output_path = './data/'
-    dataset_name = 'pdbbind2016'
-    
+def write_pickle(data, output_path, dataset_name):
     train = []
     valid = []
     test = []
@@ -443,18 +428,21 @@ if __name__ == "__main__":
     parser.add_argument('--cutoff', type=float, default=5.)
     args = parser.parse_args()
     
+    print('processing file')
+    pocket_mol2(args.data_path_core)
+    pocket_mol2(args.data_path_refined)
+    print('done')
     
-    # print('processing file')
-    # pocket_mol2(args.data_path_core)
-    # pocket_mol2(args.data_path_refined)
-    # print('done')
-    
-    # core_set_list = [x for x in os.listdir(args.data_path_core) if len(x) == 4]
+    core_set_list = [x for x in os.listdir(args.data_path_core) if len(x) == 4]
     refined_set_list = [x for x in os.listdir(args.data_path_refined) if len(x) == 4]
-    core_set_list = [[] for _ in range(len(refined_set_list))]
+    
     print('processing dataset')
     # process_dataset(args.data_path_core, args.data_path_refined, args.dataset_name, args.output_path, args.cutoff)
-    data = pmap_multi(process_dataset, zip(refined_set_list, core_set_list), n_jobs=args.n_jobs, desc='Get receptors', path=args.data_path_refined,\
-        dataset_name=args.dataset_name, output_path=args.output_path, cutoff=args.cutoff)
-    write_pickle(data)
+    data = pmap_multi(process_dataset, refined_set_list, 
+                      n_jobs=args.n_jobs, 
+                      desc='Get receptors', 
+                      core_lst=core_set_list,
+                      path=args.data_path_refined,
+                      cutoff=args.cutoff)
+    write_pickle(data, args.output_path, args.dataset_name)
     print('done')
