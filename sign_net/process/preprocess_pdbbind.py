@@ -4,7 +4,6 @@ Preprocessing code for the protein-ligand complex.
 import argparse
 import os
 import pickle
-import warnings
 from functools import partial
 
 import numpy as np
@@ -12,7 +11,6 @@ import openbabel
 from openbabel import pybel
 from scipy.spatial import distance, distance_matrix
 
-warnings.filterwarnings("ignore")
 from featurizer import Featurizer
 from utils import *
 
@@ -420,25 +418,28 @@ def pocket_mol2(path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path_core', type=str)
-    parser.add_argument('--data_path_refined', type=str)
-    parser.add_argument('--output_path', type=str, default='./data/')
+    parser.add_argument('--data_path_core', type=str, default='../data/coreset')
+    parser.add_argument('--data_path_refined', type=str, default='../data/refined-set')
+    parser.add_argument('--output_path', type=str, default='../data/')
     parser.add_argument('--dataset_name', type=str, default='pdbbind2016')
     parser.add_argument('--n_jobs', type=int, default=-1)
-    parser.add_argument('--cutoff', type=float, default=5.)
+    parser.add_argument('--cutoff', type=float, default=5.5)
+    parser.add_argument('--file_process', type=bool, default=False)
     args = parser.parse_args()
     
-    print('processing file')
-    pocket_mol2(args.data_path_core)
-    pocket_mol2(args.data_path_refined)
-    print('done')
+    if args.file_process:
+        print('processing file')
+        pocket_mol2(args.data_path_core)
+        pocket_mol2(args.data_path_refined)
+        print('done')
+    else:
+        print('ignore file process')
     
     core_set_list = [x for x in os.listdir(args.data_path_core) if len(x) == 4]
     refined_set_list = [x for x in os.listdir(args.data_path_refined) if len(x) == 4]
     
     print('processing dataset')
-    # process_dataset(args.data_path_core, args.data_path_refined, args.dataset_name, args.output_path, args.cutoff)
-    data = pmap_multi(process_dataset, refined_set_list, 
+    data = pmap_multi(process_dataset, zip(refined_set_list), 
                       n_jobs=args.n_jobs, 
                       desc='Get receptors', 
                       core_lst=core_set_list,
