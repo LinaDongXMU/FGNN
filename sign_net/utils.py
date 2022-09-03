@@ -1,9 +1,12 @@
 import torch
-from torch_sparse import SparseTensor
-from torch_scatter import scatter_add
+from joblib import Parallel, cpu_count, delayed
+from scipy.stats import pearsonr, spearmanr
+from sklearn.metrics import mean_squared_error
 from torch_geometric.utils import get_laplacian, to_undirected
-from joblib import Parallel, delayed, cpu_count
+from torch_scatter import scatter_add
+from torch_sparse import SparseTensor
 from tqdm import tqdm
+
 
 # The needed pretransform to save result of EVD
 class EVDTransform(object): 
@@ -16,7 +19,6 @@ class EVDTransform(object):
         data.eigen_values = D
         data.eigen_vectors = V.reshape(-1) # reshape to 1-d to save 
         return data
-
 
 def EVD_Laplacian(data, norm=None):
     L_raw = get_laplacian(to_undirected(data.edge_index, num_nodes=data.num_nodes), 
@@ -97,3 +99,10 @@ def pmap_multi(pickleable_fn, data, n_jobs=None, verbose=1, desc=None, **kwargs)
   )
 
   return results
+
+def get_score(label, predict):
+    RP = pearsonr(label,predict)[0]
+    RS = spearmanr(label,predict)[0]
+    MSE = mean_squared_error(label,predict)
+    RMSE = MSE**0.5
+    return RP, RS, RMSE

@@ -15,9 +15,8 @@ class MyDataset(Dataset):
         
     def _get_graph(self, data_path):   # 这里是我们根据具体任务对数据进行处理
         file = pickle.load(open(data_path, 'rb'), encoding='utf-8')
-        total = len(file)
         data_list = []
-        for i, data in enumerate(tqdm(file, desc='Processing File', total=total)): 
+        for i, data in tqdm(enumerate(file), desc='Processing File', total=len(file), colour='green'): 
             try:
                 data = np.ravel(data)
                 name = data[0]
@@ -28,7 +27,7 @@ class MyDataset(Dataset):
                 dist_rbf = data[1][4]
                 label = data[2]
                 data = Data(x = torch.from_numpy(node_feature), 
-                            y = label,
+                            y = torch.tensor(label),
                             coords = torch.from_numpy(coords),
                             edge_index = torch.from_numpy(edge_index), 
                             edge_attr = torch.from_numpy(edge_feature),

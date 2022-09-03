@@ -4,7 +4,7 @@ from torch_geometric.nn import MessagePassing
 from torch_scatter import scatter
 
 
-class EGNN(MessagePassing):
+class EGNNLayer(MessagePassing):
     def __init__(self, node_dim, hidden_dim, C=1, edge_dim=0, aggr = "add"):
         """E(n) Equivariant Graph Neural Networks from the `"How Powerful are
            Graph Neural Networks?" <https://arxiv.org/abs/2102.09844>`_ paper
