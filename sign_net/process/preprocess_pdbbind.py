@@ -15,6 +15,21 @@ from featurizer import Featurizer
 from utils import *
 
 
+def rbf_distance_featurizer(dist_list, divisor=1) -> torch.Tensor:
+    # you want to use a divisor that is close to 4/7 times the average distance that you want to encode
+    length_scale_list = [1.5 ** x for x in range(15)]
+    center_list = [0. for _ in range(15)]
+
+    num_edge = len(dist_list)
+    dist_list = np.array(dist_list)
+
+    transformed_dist = [np.exp(- ((dist_list / divisor) ** 2) / float(length_scale))
+                        for length_scale, center in zip(length_scale_list, center_list)]
+
+    transformed_dist = np.array(transformed_dist).T
+    transformed_dist = transformed_dist.reshape((num_edge, -1))
+    return torch.from_numpy(transformed_dist.astype(np.float32))
+
 def pocket_atom_num_from_mol2(name, path): # 输入为pdbid和路径
     n = 0
     with open('%s/%s/%s_pocket.mol2' % (path, name, name)) as f: # 打开pocket.mol2文件
@@ -149,6 +164,7 @@ def get_lig_atom_types(feat):
     pos = np.where(feat[:,:9]>0)
     src_list, dst_list = pos
     return dst_list
+
 def get_pock_atom_types(feat):
     pos = np.where(feat[:,18:27]>0)
     src_list, dst_list = pos
@@ -329,9 +345,10 @@ def cons_lig_pock_graph_with_spatial_context(ligand, pocket, add_fea=2, theta=5,
     edge_feat_3d[np.isinf(edge_feat_3d)] = np.nan
     edge_feat_3d[np.isnan(edge_feat_3d)] = 0
     edge_feat = np.hstack((edge_feat_3d, dist_feat))
+    edge_feat_rbf = rbf_distance_featurizer(dist_feat)
     # return lig_size, coords, feas, edges, atoms_raw # 返回配体大小，坐标，特征，邻接矩阵，原始原子
     
-    return feas, edge_index, edge_feat
+    return feas, coords, edge_index, edge_feat, edge_feat_rbf
 
 def random_split(dataset_size, split_ratio=1, seed=0, shuffle=True):
     """random splitter"""
@@ -341,7 +358,6 @@ def random_split(dataset_size, split_ratio=1, seed=0, shuffle=True):
     split = int(split_ratio * dataset_size)
     train_idx, valid_idx = indices[:split], indices[split:]
     return train_idx, valid_idx
-
 
 def process_dataset(protein_name, core_lst, path, cutoff):
     # atomic sets for long-range interactions

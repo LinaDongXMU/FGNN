@@ -22,13 +22,17 @@ class MyDataset(Dataset):
                 data = np.ravel(data)
                 name = data[0]
                 node_feature = data[1][0]
-                edge_index = data[1][1]
-                edge_feature = data[1][2]
+                coords = data[1][1]
+                edge_index = data[1][2]
+                edge_feature = data[1][3]
+                dist_rbf = data[1][4]
                 label = data[2]
                 data = Data(x = torch.from_numpy(node_feature), 
                             y = label,
+                            coords = torch.from_numpy(coords),
                             edge_index = torch.from_numpy(edge_index), 
                             edge_attr = torch.from_numpy(edge_feature),
+                            dist_rbf = dist_rbf,
                             id = name)
                 data_list.append(data)
             except:
