@@ -11,7 +11,7 @@ from tqdm import tqdm
 import pytorch_warmup as warmup
 
 from process.dataset import MyDataset  # 对这里进行替换，选择量子或经典数据
-from models.model import *  # 选择不同的模型
+from models.model2 import *  # 选择不同的模型
 from utils import get_score
 
 
@@ -26,8 +26,8 @@ class Task():
         train_subsampler = SubsetRandomSampler(train_idx)
         valid_subsampler = SubsetRandomSampler(valid_idx)
 
-        self.train_loader = DataLoader(dataset, shuffle=False, batch_size=64, sampler=train_subsampler)
-        self.valid_loader = DataLoader(dataset, shuffle=False, batch_size=64, sampler=valid_subsampler)
+        self.train_loader = DataLoader(dataset, shuffle=False, batch_size=128, sampler=train_subsampler)
+        self.valid_loader = DataLoader(dataset, shuffle=False, batch_size=128, sampler=valid_subsampler)
     
     def train(self):
         self.model.train()
@@ -35,10 +35,14 @@ class Task():
         label_lst = []
         train_pred = []
         for data in self.train_loader:
-            data = data.to(device)
-            label = data.y.to(torch.float32).to(device)
+            node = data.x.float().to(device)
+            edge_index = data.edge_index.to(device)
+            coords = data.coords.to(device)
+            dist_rbf = data.dist_rbf.float().to(device)
+            batch = data.batch.to(device)
+            label = data.y.float().to(device)
             self.optimizer.zero_grad() #set_to_none=True
-            predict = self.model(data).squeeze(-1)
+            predict = self.model(node, edge_index, coords, dist_rbf, batch).squeeze(-1)
             label_lst.append(label)
             train_pred.append(predict)
             loss = self.criterion(predict, label)
@@ -56,9 +60,13 @@ class Task():
         label_lst = []
         valid_pred = []
         for data in self.valid_loader:
-            data = data.to(device)
-            label = data.y.to(torch.float32).to(device)
-            predict = self.model(data).squeeze(-1)
+            node = data.x.float().to(device)
+            edge_index = data.edge_index.to(device)
+            coords = data.coords.to(device)
+            dist_rbf = data.dist_rbf.float().to(device)
+            batch = data.batch.to(device)
+            label = data.y.float().to(device)
+            predict = self.model(node, edge_index, coords, dist_rbf, batch).squeeze(-1)
             label_lst.append(label)
             valid_pred.append(predict)
             loss = self.criterion(predict, label)
@@ -69,7 +77,7 @@ class Task():
 
 if __name__ == "__main__":
     
-    device = 'cpu'
+    device = 'cuda'
     epochs = 300
     transform = EVDTransform('sym')
     print('Loading Data')
@@ -78,7 +86,7 @@ if __name__ == "__main__":
 
     kf = KFold(n_splits=5, random_state=128, shuffle=True)
     for kfold, (train_idx, valid_idx) in enumerate(kf.split(dataset)):
-        model = DrugNet(node_dim=36, hidden_dim=6, out_dim=12, edge_dim=10, rbf_dim=15).to(device)
+        model = DrugNet(node_dim=36, hidden_dim=64, out_dim=128, edge_dim=15, num_layer=3).to(device)
         task = Task(model, dataset, train_idx, valid_idx)
         train_loss_lst = []
         valid_loss_lst = []
