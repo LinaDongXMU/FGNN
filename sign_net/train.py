@@ -11,8 +11,8 @@ from tqdm import tqdm
 import pytorch_warmup as warmup
 
 from process.dataset import MyDataset  # 对这里进行替换，选择量子或经典数据
-from models.model import *  # 选择不同的模型
-from utils import get_score
+from models.model3 import *  # 选择不同的模型
+from utils import get_score, PETransform
 
 
 class Task():
@@ -26,8 +26,8 @@ class Task():
         train_subsampler = SubsetRandomSampler(train_idx)
         valid_subsampler = SubsetRandomSampler(valid_idx)
 
-        self.train_loader = DataLoader(dataset, shuffle=False, batch_size=32, sampler=train_subsampler)
-        self.valid_loader = DataLoader(dataset, shuffle=False, batch_size=32, sampler=valid_subsampler)
+        self.train_loader = DataLoader(dataset, shuffle=False, batch_size=64, sampler=train_subsampler)
+        self.valid_loader = DataLoader(dataset, shuffle=False, batch_size=64, sampler=valid_subsampler)
     
     def train(self):
         self.model.train()
@@ -83,7 +83,7 @@ if __name__ == "__main__":
     
     device = 'cuda'
     epochs = 300
-    transform = EVDTransform('sym')
+    transform = PETransform(pos_enc_dim=64, enc_type='sym')
     print('Loading Data')
     dataset = MyDataset('./data/pdbbind2016_train.pkl', transform=transform)
     print('Loading Done')
@@ -91,7 +91,7 @@ if __name__ == "__main__":
     kf = KFold(n_splits=5, random_state=128, shuffle=True)
     for kfold, (train_idx, valid_idx) in enumerate(kf.split(dataset)):
         # model = DrugNet(node_dim=36, hidden_dim=64, out_dim=128, edge_dim=15, num_layer=3).to(device)   # model2
-        model = DrugNet(node_dim=36, hidden_dim=4, out_dim=12, edge_dim=10, rbf_dim=15).to(device)   # model
+        model = DrugNet(pos_enc_dim=64, node_dim=36, hidden_dim=256, out_dim=128, edge_dim=10, rbf_dim=15).to(device)   # model
         task = Task(model, dataset, train_idx, valid_idx)
         train_loss_lst = []
         valid_loss_lst = []

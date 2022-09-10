@@ -1,6 +1,3 @@
-"""
-Preprocessing code for the protein-ligand complex.
-"""
 import argparse
 import os
 import pickle
@@ -8,12 +5,24 @@ from functools import partial
 
 import numpy as np
 import openbabel
+import torch
+from joblib import Parallel, cpu_count, delayed
 from openbabel import pybel
 from scipy.spatial import distance, distance_matrix
+from tqdm import tqdm
 
 from featurizer import Featurizer
-from utils import *
 
+
+def pmap_multi(pickleable_fn, data, n_jobs=None, verbose=1, desc=None, **kwargs):
+  if n_jobs is None:
+    n_jobs = cpu_count() - 1
+
+  results = Parallel(n_jobs=n_jobs, verbose=verbose, timeout=None)(
+    delayed(pickleable_fn)(*d, **kwargs) for i, d in tqdm(enumerate(data),desc=desc)
+  )
+
+  return results
 
 def rbf_distance_featurizer(dist_list, divisor=1) -> torch.Tensor:
     # you want to use a divisor that is close to 4/7 times the average distance that you want to encode

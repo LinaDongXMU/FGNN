@@ -60,7 +60,6 @@ class GINEConv(MessagePassing):
     
     
 class GINE(BasicGNN):
-    def init_conv(self, in_channels: int, out_channels: int, edge_dim: int,
-                  **kwargs) -> MessagePassing:
-        mlp = MLP([in_channels, out_channels, out_channels], batch_norm=False)
+    def init_conv(self, in_channels: int, out_channels: int, edge_dim: int, **kwargs) -> MessagePassing:
+        mlp = MLP([in_channels, out_channels, out_channels], batch_norm=True)
         return GINEConv(mlp, train_eps=True, edge_dim=edge_dim, **kwargs)

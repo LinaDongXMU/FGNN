@@ -1,32 +1,93 @@
 import torch
-from joblib import Parallel, cpu_count, delayed
+from scipy import sparse
+import torch.nn.functional as F
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import mean_squared_error
-from torch_geometric.utils import get_laplacian, to_undirected
+from torch_geometric.utils import get_laplacian, to_undirected, to_scipy_sparse_matrix, degree
 from torch_scatter import scatter_add
 from torch_sparse import SparseTensor
-from tqdm import tqdm
 
 
 # The needed pretransform to save result of EVD
-class EVDTransform(object): 
-    def __init__(self, norm=None):
+class PETransform(object): 
+    def __init__(self, pos_enc_dim, enc_type='lap'):
         super().__init__()
-        self.norm = norm
+        assert enc_type.lower() in ['rw', 'sym'], 'position encoding type error'
+        
+        self.pos_enc_dim = pos_enc_dim
+        self.enc_type = enc_type
         
     def __call__(self, data):
-        D, V = EVD_Laplacian(data, self.norm)
-        data.eigen_values = D
-        data.eigen_vectors = V.reshape(-1) # reshape to 1-d to save 
+        n = data.num_nodes
+        EigVal, EigVec = self._position_encoding(data, self.enc_type)
+        position_encoding = EigVec[:,1:self.pos_enc_dim+1]
+        
+        if n <= self.pos_enc_dim:
+            position_encoding = F.pad(position_encoding, (0, self.pos_enc_dim - n + 1), value=float('0'))
+            
+        data.pos_enc = position_encoding
         return data
 
-def EVD_Laplacian(data, norm=None):
-    L_raw = get_laplacian(to_undirected(data.edge_index, num_nodes=data.num_nodes), 
-                          normalization=norm, num_nodes=data.num_nodes)
-    L = SparseTensor(row=L_raw[0][0], col=L_raw[0][1], value=L_raw[1], sparse_sizes=(data.num_nodes, data.num_nodes)).to_dense()
+    def _position_encoding(self, data, norm=None):
+        L_raw = get_laplacian(to_undirected(data.edge_index, num_nodes=data.num_nodes), 
+                              normalization=norm, num_nodes=data.num_nodes)
+        L = SparseTensor(row=L_raw[0][0], col=L_raw[0][1], value=L_raw[1], sparse_sizes=(data.num_nodes, data.num_nodes)).to_dense()
 
-    D, V  = torch.linalg.eigh(L)
-    return D, V
+        EigVal, EigVec  = torch.linalg.eigh(L)
+        return EigVal, EigVec
+
+
+# class PETransform(object): 
+#     def __init__(self, pos_enc_dim, norm=None, enc_type='lap'):
+#         super().__init__()
+#         assert enc_type.lower() in ['lap', 'rw'], 'position encoding type error'
+#         self.pos_enc_dim = pos_enc_dim
+#         self.norm = norm
+#         self.enc_type = enc_type
+        
+#     def __call__(self, data):
+#         n = data.num_nodes
+#         edge_index = data.edge_index
+#         if self.enc_type == 'lap':
+#             EigVal, EigVec = self._Laplacian(data, self.norm)
+#             position_encoding = EigVec[:,1:self.pos_enc_dim+1]
+            
+#             if n <= self.pos_enc_dim:
+#                 position_encoding = F.pad(position_encoding, (0, self.pos_enc_dim - n + 1), value=float('0'))
+
+#         elif self.enc_type == 'rw':
+#             position_encoding = self._rw(edge_index, self.pos_enc_dim)
+            
+#         data.pos_enc = position_encoding
+#         return data
+
+#     def _Laplacian(self, data, norm=None):
+#         L_raw = get_laplacian(to_undirected(data.edge_index, num_nodes=data.num_nodes), 
+#                               normalization=norm, num_nodes=data.num_nodes)
+#         L = SparseTensor(row=L_raw[0][0], col=L_raw[0][1], value=L_raw[1], sparse_sizes=(data.num_nodes, data.num_nodes)).to_dense()
+
+#         EigVal, EigVec  = torch.linalg.eigh(L)
+#         return EigVal, EigVec
+    
+#     def _rw(self, edge_index, pos_enc_dim):
+#         """
+#             Initializing positional encoding with RWPE
+#         """
+#         # Geometric diffusion features with Random Walk
+#         A = to_scipy_sparse_matrix(edge_index).toarray()
+#         Dinv = sparse.diags((degree(edge_index[0]).clip(1) ** -1.0).tolist(), dtype=float) # D^-1
+#         RW = A * Dinv  
+#         M = RW
+        
+#         # Iterate
+#         nb_pos_enc = pos_enc_dim
+#         PE = [torch.tensor(M.diagonal()).float()]
+#         M_power = M
+#         for _ in range(nb_pos_enc-1):
+#             M_power = M_power * M
+#             PE.append(torch.tensor(M_power.diagonal()).float())
+#         PE = torch.stack(PE,dim=-1)
+#         return PE
 
 def to_dense_EVD(eigS, eigV, batch):
     # eigS has the same dimension as batch
@@ -63,42 +124,6 @@ def to_dense_list_EVD(eigS, eigV, batch):
     # eigV_dense: (N1+N2+...+Nb) x N_max 
 
     return eigS_dense, eigV_dense
-
-def pmap_multi(pickleable_fn, data, n_jobs=None, verbose=1, desc=None, **kwargs):
-  """
-
-  Parallel map using joblib.
-
-  Parameters
-  ----------
-  pickleable_fn : callable
-      Function to map over data.
-  data : iterable
-      Data over which we want to parallelize the function call.
-  n_jobs : int, optional
-      The maximum number of concurrently running jobs. By default, it is one less than
-      the number of CPUs.
-  verbose: int, optional
-      The verbosity level. If nonzero, the function prints the progress messages.
-      The frequency of the messages increases with the verbosity level. If above 10,
-      it reports all iterations. If above 50, it sends the output to stdout.
-  kwargs
-      Additional arguments for :attr:`pickleable_fn`.
-
-  Returns
-  -------
-  list
-      The i-th element of the list corresponds to the output of applying
-      :attr:`pickleable_fn` to :attr:`data[i]`.
-  """
-  if n_jobs is None:
-    n_jobs = cpu_count() - 1
-
-  results = Parallel(n_jobs=n_jobs, verbose=verbose, timeout=None)(
-    delayed(pickleable_fn)(*d, **kwargs) for i, d in tqdm(enumerate(data),desc=desc)
-  )
-
-  return results
 
 def get_score(label, predict):
     RP = pearsonr(label,predict)[0]
