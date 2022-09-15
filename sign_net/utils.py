@@ -10,7 +10,7 @@ from torch_sparse import SparseTensor
 
 # The needed pretransform to save result of EVD
 class PETransform(object): 
-    def __init__(self, pos_enc_dim, enc_type='lap'):
+    def __init__(self, pos_enc_dim, enc_type='sym'):
         super().__init__()
         assert enc_type.lower() in ['rw', 'sym'], 'position encoding type error'
         
@@ -25,7 +25,7 @@ class PETransform(object):
         if n <= self.pos_enc_dim:
             position_encoding = F.pad(position_encoding, (0, self.pos_enc_dim - n + 1), value=float('0'))
             
-        data.pos_enc = position_encoding
+        data.pos_enc = position_encoding.to(torch.float16)
         return data
 
     def _position_encoding(self, data, norm=None):

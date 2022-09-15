@@ -20,7 +20,7 @@ class Task():
         self.model = model
         self.optimizer = optim.Adam(model.parameters(),lr=0.01)
         self.warmup_scheduler = warmup.UntunedExponentialWarmup(self.optimizer)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.5, cooldown=40, min_lr=1e-6)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.5, cooldown=30, min_lr=1e-6)
         self.criterion = nn.MSELoss()
         
         train_subsampler = SubsetRandomSampler(train_idx)
@@ -41,7 +41,7 @@ class Task():
             # coords = data.coords.to(device)   # model2   
             # dist_rbf = data.dist_rbf.float().to(device)   # model2   
             # batch = data.batch.to(device)   # model2   
-            label = data.y.float().to(device)
+            label = data.y.to(device)
             self.optimizer.zero_grad()
             # predict = self.model(node, edge_index, coords, dist_rbf, batch).squeeze(-1)   # model2   
             predict = self.model(data).squeeze(-1)   # model1
@@ -83,7 +83,7 @@ if __name__ == "__main__":
     
     device = 'cuda'
     epochs = 300
-    transform = PETransform(pos_enc_dim=64, enc_type='sym')
+    transform = PETransform(pos_enc_dim=256, enc_type='sym')
     print('Loading Data')
     dataset = MyDataset('./data/pdbbind2016_train.pkl', transform=transform)
     print('Loading Done')
@@ -91,7 +91,7 @@ if __name__ == "__main__":
     kf = KFold(n_splits=5, random_state=128, shuffle=True)
     for kfold, (train_idx, valid_idx) in enumerate(kf.split(dataset)):
         # model = DrugNet(node_dim=36, hidden_dim=64, out_dim=128, edge_dim=15, num_layer=3).to(device)   # model2
-        model = DrugNet(pos_enc_dim=64, node_dim=36, hidden_dim=256, out_dim=128, edge_dim=10, rbf_dim=15).to(device)   # model
+        model = DrugNet(pos_enc_dim=256, node_dim=36, hidden_dim=256, out_dim=128, edge_dim=10, rbf_dim=15).to(device)   # model
         task = Task(model, dataset, train_idx, valid_idx)
         train_loss_lst = []
         valid_loss_lst = []

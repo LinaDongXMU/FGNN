@@ -26,12 +26,12 @@ class MyDataset(Dataset):
                 edge_feature = data[1][3]
                 dist_rbf = data[1][4]
                 label = data[2]
-                data = Data(x = torch.from_numpy(node_feature), 
-                            y = torch.tensor(label),
-                            coords = torch.from_numpy(coords),
+                data = Data(x = torch.from_numpy(node_feature).to(torch.float16), 
+                            y = torch.tensor(label).to(torch.float16),
+                            coords = torch.from_numpy(coords).to(torch.float16),
                             edge_index = torch.from_numpy(edge_index), 
-                            edge_attr = torch.from_numpy(edge_feature),
-                            dist_rbf = dist_rbf,
+                            edge_attr = torch.from_numpy(edge_feature).to(torch.float16),
+                            dist_rbf = dist_rbf.to(torch.float16),
                             id = name)
                 data_list.append(data)
             except:
