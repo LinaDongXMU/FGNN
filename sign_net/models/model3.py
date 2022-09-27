@@ -25,7 +25,5 @@ class DrugNet(nn.Module):
         pos = self.sign_net(data)   # node_num, 10
         x = torch.cat([node_feat, pos], dim=-1)
         graph = self.gnn(x, edge_index, dist_rbf, data.batch)
-        # print(node.shape)
-        # graph = global_mean_pool(node, data.batch)
         out = self.regression(graph)
         return out

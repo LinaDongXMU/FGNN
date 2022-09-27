@@ -9,6 +9,7 @@ from torch.utils.data import SubsetRandomSampler
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 import pytorch_warmup as warmup
+from torch.cuda.amp import autocast, GradScaler
 
 from process.dataset import MyDataset  # 对这里进行替换，选择量子或经典数据
 from models.model3 import *  # 选择不同的模型
@@ -20,14 +21,15 @@ class Task():
         self.model = model
         self.optimizer = optim.Adam(model.parameters(),lr=0.01)
         self.warmup_scheduler = warmup.UntunedExponentialWarmup(self.optimizer)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.5, cooldown=30, min_lr=1e-6)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.5, cooldown=40, min_lr=1e-6)
         self.criterion = nn.MSELoss()
+        self.scaler = GradScaler()
         
         train_subsampler = SubsetRandomSampler(train_idx)
         valid_subsampler = SubsetRandomSampler(valid_idx)
 
-        self.train_loader = DataLoader(dataset, shuffle=False, batch_size=64, sampler=train_subsampler)
-        self.valid_loader = DataLoader(dataset, shuffle=False, batch_size=64, sampler=valid_subsampler)
+        self.train_loader = DataLoader(dataset, shuffle=False, batch_size=64, sampler=train_subsampler, num_workers=4)
+        self.valid_loader = DataLoader(dataset, shuffle=False, batch_size=64, sampler=valid_subsampler, num_workers=4)
     
     def train(self):
         self.model.train()
@@ -43,13 +45,17 @@ class Task():
             # batch = data.batch.to(device)   # model2   
             label = data.y.to(device)
             self.optimizer.zero_grad()
+            with autocast():
             # predict = self.model(node, edge_index, coords, dist_rbf, batch).squeeze(-1)   # model2   
-            predict = self.model(data).squeeze(-1)   # model1
-            label_lst.append(label)
-            train_pred.append(predict)
-            loss = self.criterion(predict, label)
-            loss.backward()
-            self.optimizer.step()         #每个batch更新一次参数
+                predict = self.model(data).squeeze(-1)   # model1
+                label_lst.append(label)
+                train_pred.append(predict)
+                loss = self.criterion(predict, label)
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            # loss.backward()
+            # self.optimizer.step()         #每个batch更新一次参数
             loss_per_epoch_train += loss.item()
             
         loss_per_epoch_train = loss_per_epoch_train / len(self.train_loader)
@@ -132,11 +138,11 @@ if __name__ == "__main__":
                 min_loss = loss_per_epoch_valid
                 num += 1
                 if num % 2 == 0:
-                    torch.save(model, f'./data/cache/QuDTI_{kfold}_1.pkl')
+                    torch.save(model, f'./data/cache/model3_{kfold}_1.pkl')
                 else:
-                    torch.save(model, f'./data/cache/QuDTI_{kfold}_2.pkl')
+                    torch.save(model, f'./data/cache/model3_{kfold}_2.pkl')
             if epoch+1 == 300:
-                torch.save(model, f'./data/cache/QuDTI_{kfold}_3.pkl')
+                torch.save(model, f'./data/cache/model3_{kfold}_3.pkl')
 
             # ——————————————————————数据打印—————————————————————
             print(f'kfold: {kfold+1} || epoch: {epoch+1}')

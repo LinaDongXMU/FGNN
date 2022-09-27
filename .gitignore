@@ -6,3 +6,5 @@
 /sign_net/models/__pycache__
 /sign_net/results
 /sign_net/*.ipynb
+/sign_net/*.txt
+/sign_net/*.csv

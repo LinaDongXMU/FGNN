@@ -1,5 +1,5 @@
 import torch.nn as nn
-from torch_geometric.nn import MLP
+from torch_geometric.nn import MLP, GAT
 from .gine import GINE
 
 
@@ -18,6 +18,6 @@ class SignNetLayer(nn.Module):
 
     def forward(self, data):
         x = data.pos_enc
-        phi_out = self.phi(x, data.edge_index, data.edge_attr.float()) + self.phi(-x, data.edge_index, data.edge_attr.float())
+        phi_out = self.phi(x, data.edge_index, data.edge_attr) + self.phi(-x, data.edge_index, data.edge_attr)
         out = self.rho(phi_out)
         return out
