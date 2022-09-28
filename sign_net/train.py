@@ -52,6 +52,8 @@ class Task():
                 train_pred.append(predict)
                 loss = self.criterion(predict, label)
             self.scaler.scale(loss).backward()
+            # torch.nn.utils.clip_grad_norm(self.model.parameters(), 5)    #设置剪裁阈值为5
+
             self.scaler.step(self.optimizer)
             self.scaler.update()
             # loss.backward()

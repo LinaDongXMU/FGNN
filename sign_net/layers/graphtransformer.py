@@ -17,6 +17,13 @@ class MultiHeadAttentionLayer(MessagePassing):
         self.K = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
         self.V = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
         
+        self.reset_parameters()
+        
+    def reset_parameters(self):
+        self.Q.reset_parameters()
+        self.K.reset_parameters()
+        self.V.reset_parameters()
+        
     def forward(self, node_feats, edge_index):
         v, z = self.propagate(edge_index=edge_index, x=node_feats)
         
@@ -45,23 +52,19 @@ class MultiHeadAttentionLayer(MessagePassing):
 
 
 class GraphTransformerLayer(nn.Module):
-    def __init__(self, in_dim, out_dim, num_heads, dropout=0.0, layer_norm=False, batch_norm=True, residual=True, use_bias=False):
+    def __init__(self, in_dim, out_dim, num_heads, dropout=0.0, batch_norm=True, residual=True, use_bias=False):
         super().__init__()
 
         self.in_channels = in_dim
         self.out_channels = out_dim
         self.num_heads = num_heads
         self.dropout = dropout
-        self.residual = residual
-        self.layer_norm = layer_norm        
+        self.residual = residual       
         self.batch_norm = batch_norm
         
         self.attention = MultiHeadAttentionLayer(in_dim, out_dim//num_heads, num_heads, use_bias)
         
         self.O = nn.Linear(out_dim, out_dim)
-
-        if self.layer_norm:
-            self.layer_norm1 = nn.LayerNorm(out_dim)
             
         if self.batch_norm:
             self.batch_norm1 = nn.BatchNorm1d(out_dim)
@@ -69,12 +72,16 @@ class GraphTransformerLayer(nn.Module):
         # FFN
         self.FFN_layer1 = nn.Linear(out_dim, out_dim*2)
         self.FFN_layer2 = nn.Linear(out_dim*2, out_dim)
-
-        if self.layer_norm:
-            self.layer_norm2 = nn.LayerNorm(out_dim)
             
         if self.batch_norm:
             self.batch_norm2 = nn.BatchNorm1d(out_dim)
+        self.reset_parameters()
+    
+    def reset_parameters(self):
+        self.attention.reset_parameters()
+        self.O.reset_parameters()
+        self.FFN_layer1.reset_parameters()
+        self.FFN_layer2.reset_parameters()
         
     def forward(self, node_feat, edge_index):
         h_in1 = node_feat # for first residual connection

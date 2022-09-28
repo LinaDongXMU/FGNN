@@ -31,12 +31,12 @@ class SignNetLayer_Transformer(nn.Module):
                         edge_dim=edge_dim, num_layers=3, jk='lstm')
         
         self.rho = GraphTransformerLayer(in_dim=out_dim, out_dim=out_dim, num_heads=8, 
-                                         dropout=0.1, layer_norm=True, residual=True, use_bias=True)
+                                         batch_norm=True, residual=True, use_bias=True)
         self.reset_parameters()
 
     def reset_parameters(self):
         self.phi.reset_parameters()
-        # self.rho.reset_parameters()
+        self.rho.reset_parameters()
 
     def forward(self, data):
         x = data.pos_enc
