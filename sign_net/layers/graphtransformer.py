@@ -96,9 +96,6 @@ class GraphTransformerLayer(nn.Module):
         
         if self.residual:
             h = h_in1 + h # residual connection
-        
-        if self.layer_norm:
-            h = self.layer_norm1(h)
             
         if self.batch_norm:
             h = self.batch_norm1(h)
@@ -113,9 +110,6 @@ class GraphTransformerLayer(nn.Module):
 
         if self.residual:
             h = h_in2 + h # residual connection
-        
-        if self.layer_norm:
-            h = self.layer_norm2(h)
             
         if self.batch_norm:
             h = self.batch_norm2(h)       
