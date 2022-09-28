@@ -21,7 +21,7 @@ class Task():
         self.model = model
         self.optimizer = optim.Adam(model.parameters(),lr=0.01)
         self.warmup_scheduler = warmup.UntunedExponentialWarmup(self.optimizer)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.5, cooldown=40, min_lr=1e-6)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.5, cooldown=30, min_lr=1e-6)
         self.criterion = nn.MSELoss()
         self.scaler = GradScaler()
         

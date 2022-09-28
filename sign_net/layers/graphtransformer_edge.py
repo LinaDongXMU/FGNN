@@ -31,17 +31,18 @@ class MultiHeadAttentionLayer_edge(MessagePassing):
         v_j = self.V(x_j).view(-1, self.num_heads, self.out_dim)
         
         edge_feat_projection = self.edge_feats_projection(edge_feats).view(-1, self.num_heads, self.out_dim)
-        att_score = ((q_i * k_j) / np.sqrt(self.out_dim)).clamp(-5.0,5.0)
-        edge_feats = torch.exp(att_score * edge_feat_projection).clamp(-5.0,5.0)
+        score = ((q_i * k_j) / np.sqrt(self.out_dim))
+        edge_feats = score * edge_feat_projection
+        score = torch.exp(edge_feats.sum(dim=-1, keepdim=True).clamp(-5.0,5.0))
         
-        msg = edge_feats * v_j
-        return msg, edge_feats
+        msg = score * v_j
+        return msg, score, edge_feats
         
     def aggregate(self, inputs, index, ptr=None, dim_size=None):
-        msg, edge_feats = inputs
+        msg, score, edge_feats = inputs
         
         return [scatter(msg, index, dim=-3, dim_size=dim_size, reduce=self.aggr),
-                scatter(edge_feats, index, dim=-3, dim_size=dim_size, reduce=self.aggr),
+                scatter(score, index, dim=-3, dim_size=dim_size, reduce=self.aggr),
                 edge_feats]
 
     def update(self, agg_out):
