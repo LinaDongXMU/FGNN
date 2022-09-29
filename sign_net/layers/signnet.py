@@ -1,18 +1,16 @@
-import torch
 import torch.nn as nn
-import torch.functional as F
-from torch_geometric.nn import MLP
-from torch_scatter import scatter
+from torch_geometric.nn import MLP, GAT
 from .gine import GINE
-
-from utils import to_dense_list_EVD
+from .graphtransformer import GraphTransformerLayer, MultiHeadAttentionLayer
 
 
 class SignNetLayer(nn.Module):
-    def __init__(self, hidden_dim, out_dim, edge_dim, num_layer=3, eigenval_dim=1):
+    def __init__(self, pos_enc_dim, hidden_dim, out_dim, edge_dim):
         super().__init__()
-        self.phi = GINE(eigenval_dim, hidden_dim, num_layer, out_channels=edge_dim, edge_dim=edge_dim) 
-        self.rho = MLP([edge_dim, hidden_dim, out_dim])
+        self.phi = GINE(in_channels=pos_enc_dim, hidden_channels=hidden_dim, out_channels=out_dim, 
+                        edge_dim=edge_dim, num_layers=3, jk='lstm')
+        
+        self.rho = MLP([out_dim, hidden_dim, out_dim])
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -20,10 +18,30 @@ class SignNetLayer(nn.Module):
         self.rho.reset_parameters()
 
     def forward(self, data):
-        eigS_dense, eigV_dense = to_dense_list_EVD(data.eigen_values, data.eigen_vectors, data.batch) 
-        x = eigV_dense.unsqueeze(-1).transpose(0,1)
-        phi_out = self.phi(x, data.edge_index, data.edge_attr.float()) + self.phi(-x, data.edge_index, data.edge_attr.float())
-        phi_out = phi_out.transpose(0,1)
-        phi_out = torch.sum(phi_out, dim=1).squeeze(1)
+        x = data.pos_enc
+        phi_out = self.phi(x, data.edge_index, data.edge_attr) + self.phi(-x, data.edge_index, data.edge_attr)
         out = self.rho(phi_out)
+        return out
+    
+
+class SignNetLayer_Transformer(nn.Module):
+    def __init__(self, pos_enc_dim, hidden_dim, out_dim, edge_dim):
+        super().__init__()
+        self.out_dim = out_dim
+        self.phi = GINE(in_channels=pos_enc_dim, hidden_channels=hidden_dim, out_channels=out_dim, 
+                        edge_dim=edge_dim, num_layers=3, jk='lstm')
+        
+        # self.rho = GraphTransformerLayer(in_dim=out_dim, out_dim=out_dim, num_heads=8, 
+        #                                  batch_norm=True, residual=True, use_bias=True)
+        self.rho = MultiHeadAttentionLayer(in_dim=out_dim, out_dim=out_dim//8, num_heads=8)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        self.phi.reset_parameters()
+        self.rho.reset_parameters()
+
+    def forward(self, data):
+        x = data.pos_enc
+        phi_out = self.phi(x, data.edge_index, data.edge_attr) + self.phi(-x, data.edge_index, data.edge_attr)
+        out = self.rho(phi_out, data.edge_index).view(-1, self.out_dim)
         return out
