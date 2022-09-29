@@ -7,17 +7,18 @@ from torch_scatter import scatter
 
 
 class MultiHeadAttentionLayer_edge(MessagePassing):
-    def __init__(self, in_dim, out_dim, num_heads, using_bias=False, update_edge_feats=True):
+    def __init__(self, in_dim, out_dim, num_heads, edge_dim=None, using_bias=False):
         super().__init__()
         self.out_dim = out_dim
         self.num_heads = num_heads
         self.using_bias = using_bias
-        self.update_edge_feats = update_edge_feats
+        
+        edge_dim = in_dim if edge_dim is None else edge_dim
         
         self.Q = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
         self.K = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
         self.V = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
-        self.edge_feats_projection = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
+        self.edge_feats_projection = nn.Linear(edge_dim, out_dim*num_heads, bias=using_bias)
         
     def forward(self, node_feats, edge_feats, edge_index):
         v, z, edge_feat = self.propagate(edge_index=edge_index, x=node_feats, edge_feats=edge_feats)
@@ -29,6 +30,50 @@ class MultiHeadAttentionLayer_edge(MessagePassing):
         q_i = self.Q(x_i).view(-1, self.num_heads, self.out_dim)
         k_j = self.K(x_j).view(-1, self.num_heads, self.out_dim)
         v_j = self.V(x_j).view(-1, self.num_heads, self.out_dim)
+        
+        edge_feat_projection = self.edge_feats_projection(edge_feats).view(-1, self.num_heads, self.out_dim)
+        score = ((q_i * k_j) / np.sqrt(self.out_dim))
+        edge_feats = score * edge_feat_projection
+        score = torch.exp(edge_feats.sum(dim=-1, keepdim=True).clamp(-5.0,5.0))
+        
+        msg = score * v_j
+        return msg, score, edge_feats
+        
+    def aggregate(self, inputs, index, ptr=None, dim_size=None):
+        msg, score, edge_feats = inputs
+        
+        return [scatter(msg, index, dim=-3, dim_size=dim_size, reduce=self.aggr),
+                scatter(score, index, dim=-3, dim_size=dim_size, reduce=self.aggr),
+                edge_feats]
+
+    def update(self, agg_out):
+        return agg_out
+    
+    
+class MultiHeadAttentionLayer_edge_2(MessagePassing):
+    def __init__(self, in_dim, out_dim, num_heads, edge_dim=None, using_bias=False):
+        super().__init__()
+        self.out_dim = out_dim
+        self.num_heads = num_heads
+        self.using_bias = using_bias
+
+        edge_dim = in_dim if edge_dim is None else edge_dim
+        
+        self.Q = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
+        self.K = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
+        self.V = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
+        self.edge_feats_projection = nn.Linear(edge_dim, out_dim*num_heads, bias=using_bias)
+        
+    def forward(self, input1, input2, edge_feats, edge_index):
+        v, z, edge_feat = self.propagate(edge_index=edge_index, input1=input1, input2=input2, edge_feats=edge_feats)
+        
+        node_feats = v / z + torch.full_like(z, 1e-6)
+        return node_feats, edge_feat
+        
+    def message(self, input1_i, input2_j, edge_feats):
+        q_i = self.Q(input1_i).view(-1, self.num_heads, self.out_dim)
+        k_j = self.K(input2_j).view(-1, self.num_heads, self.out_dim)
+        v_j = self.V(input2_j).view(-1, self.num_heads, self.out_dim)
         
         edge_feat_projection = self.edge_feats_projection(edge_feats).view(-1, self.num_heads, self.out_dim)
         score = ((q_i * k_j) / np.sqrt(self.out_dim))

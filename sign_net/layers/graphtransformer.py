@@ -49,6 +49,51 @@ class MultiHeadAttentionLayer(MessagePassing):
 
     def update(self, agg_out):
         return agg_out
+    
+    
+class MultiHeadAttentionLayer_2(MessagePassing):
+    def __init__(self, in_dim, out_dim, num_heads, using_bias=True):
+        super().__init__()
+        self.out_dim = out_dim
+        self.num_heads = num_heads
+        self.using_bias = using_bias
+        
+        self.Q = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
+        self.K = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
+        self.V = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
+        
+        self.reset_parameters()
+        
+    def reset_parameters(self):
+        self.Q.reset_parameters()
+        self.K.reset_parameters()
+        self.V.reset_parameters()
+        
+    def forward(self, input1, input2, edge_index):
+        v, z = self.propagate(edge_index=edge_index, input1=input1, input2=input2)
+        
+        node_feats = v / z + torch.full_like(z, 1e-6)
+        return node_feats
+        
+    def message(self, input1_i, input2_j):
+        q_i = self.Q(input1_i).view(-1, self.num_heads, self.out_dim)
+        k_j = self.K(input2_j).view(-1, self.num_heads, self.out_dim)
+        v_j = self.V(input2_j).view(-1, self.num_heads, self.out_dim)
+        
+        att_score = (q_i * k_j).sum(-1, keepdim=True)
+        att_score = torch.exp(att_score / np.sqrt(self.out_dim)).clamp(-5.0,5.0)
+        
+        msg = v_j * att_score
+        return msg, att_score
+        
+    def aggregate(self, inputs, index, ptr=None, dim_size=None):
+        msg, att_score = inputs
+        
+        return [scatter(msg, index, dim=0, dim_size=dim_size, reduce=self.aggr),
+                scatter(att_score, index, dim=0, dim_size=dim_size, reduce=self.aggr)]
+
+    def update(self, agg_out):
+        return agg_out
 
 
 class GraphTransformerLayer(nn.Module):
@@ -123,11 +168,12 @@ class GraphTransformerLayer(nn.Module):
         
 
 if __name__ == "__main__":
-    node = torch.randn((16, 64))
+    node_1 = torch.randn((16, 64))
+    node_2 = torch.randn((16, 64))
     edge_index = torch.randint(0, 16, (2, 96))
     edge_feat = torch.randn((96, 64))
 
-    model = GraphTransformerLayer(64, 64, 8, dropout=0.1, layer_norm=True, use_bias=True)
-    out = model(node, edge_index)
+    model = MultiHeadAttentionLayer_2(64, 128//8, 8)
+    out = model(node_1, node_2, edge_index)
     print(f'node: {out.shape}')
     # print(f'edge: {out[1].shape}')

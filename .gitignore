@@ -9,3 +9,4 @@
 /sign_net/*.txt
 /sign_net/*.csv
 /sign_net/[test]
+/sign_net/train_2.py
