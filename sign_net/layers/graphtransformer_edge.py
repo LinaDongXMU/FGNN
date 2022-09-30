@@ -111,7 +111,7 @@ class MultiHeadAttentionLayer_edge_2(MessagePassing):
 
 
 class GraphTransformerLayer_edge(nn.Module):
-    def __init__(self, in_dim, out_dim, num_heads, dropout=0.0, layer_norm=False, batch_norm=True, residual=True, use_bias=False):
+    def __init__(self, in_dim, out_dim, num_heads, edge_dim, dropout=0.0, batch_norm=True, residual=True, use_bias=False):
         super().__init__()
 
         self.in_channels = in_dim
@@ -119,17 +119,12 @@ class GraphTransformerLayer_edge(nn.Module):
         self.num_heads = num_heads
         self.dropout = dropout
         self.residual = residual
-        self.layer_norm = layer_norm     
         self.batch_norm = batch_norm
         
-        self.attention = MultiHeadAttentionLayer_edge(in_dim, out_dim//num_heads, num_heads, use_bias)
+        self.attention = MultiHeadAttentionLayer_edge(in_dim, out_dim//num_heads, num_heads, edge_dim, use_bias)
         
         self.O_h = nn.Linear(out_dim, out_dim)
         self.O_e = nn.Linear(out_dim, out_dim)
-
-        if self.layer_norm:
-            self.layer_norm1_h = nn.LayerNorm(out_dim)
-            self.layer_norm1_e = nn.LayerNorm(out_dim)
             
         if self.batch_norm:
             self.batch_norm1_h = nn.BatchNorm1d(out_dim)
@@ -142,10 +137,6 @@ class GraphTransformerLayer_edge(nn.Module):
         # FFN for e
         self.FFN_e_layer1 = nn.Linear(out_dim, out_dim*2)
         self.FFN_e_layer2 = nn.Linear(out_dim*2, out_dim)
-
-        if self.layer_norm:
-            self.layer_norm2_h = nn.LayerNorm(out_dim)
-            self.layer_norm2_e = nn.LayerNorm(out_dim)
             
         if self.batch_norm:
             self.batch_norm2_h = nn.BatchNorm1d(out_dim)
@@ -171,10 +162,6 @@ class GraphTransformerLayer_edge(nn.Module):
             h = h_in1 + h # residual connection
             e = e_in1 + e # residual connection
 
-        if self.layer_norm:
-            h = self.layer_norm1_h(h)
-            e = self.layer_norm1_e(e)
-
         if self.batch_norm:
             h = self.batch_norm1_h(h)
             e = self.batch_norm1_e(e)
@@ -197,10 +184,6 @@ class GraphTransformerLayer_edge(nn.Module):
         if self.residual:
             h = h_in2 + h # residual connection       
             e = e_in2 + e # residual connection  
-
-        if self.layer_norm:
-            h = self.layer_norm2_h(h)
-            e = self.layer_norm2_e(e)
 
         if self.batch_norm:
             h = self.batch_norm2_h(h)
