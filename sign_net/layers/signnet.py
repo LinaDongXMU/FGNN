@@ -2,6 +2,7 @@ import torch.nn as nn
 from torch_geometric.nn import MLP, GAT
 from .gine import GINE
 from .graphtransformer import GraphTransformerLayer, MultiHeadAttentionLayer
+from .graphtransformer_edge import MultiHeadAttentionLayer_edge
 
 
 class SignNetLayer(nn.Module):
@@ -44,4 +45,25 @@ class SignNetLayer_Transformer(nn.Module):
         x = data.pos_enc
         phi_out = self.phi(x, data.edge_index, data.edge_attr) + self.phi(-x, data.edge_index, data.edge_attr)
         out = self.rho(phi_out, data.edge_index).view(-1, self.out_dim)
+        return out
+    
+    
+class SignNetLayer_Transformer2(nn.Module):
+    def __init__(self, pos_enc_dim, hidden_dim, out_dim, edge_dim):
+        super().__init__()
+        self.out_dim = out_dim
+        self.phi = MultiHeadAttentionLayer_edge(in_dim=pos_enc_dim, out_dim=out_dim//8, num_heads=8, edge_dim=edge_dim, using_bias=True)
+        
+        self.rho = MLP([out_dim, hidden_dim, out_dim])
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        self.phi.reset_parameters()
+        self.rho.reset_parameters()
+
+    def forward(self, data):
+        x = data.pos_enc
+        phi_out = self.phi(x, data.edge_attr, data.edge_index) + self.phi(-x, data.edge_attr, data.edge_index)
+        phi_out = phi_out[0].view(-1, self.out_dim)
+        out = self.rho(phi_out)
         return out

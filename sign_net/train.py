@@ -99,7 +99,7 @@ if __name__ == "__main__":
     kf = KFold(n_splits=5, random_state=128, shuffle=True)
     for kfold, (train_idx, valid_idx) in enumerate(kf.split(dataset)):
         # model = DrugNet(node_dim=36, hidden_dim=64, out_dim=128, edge_dim=15, num_layer=3).to(device)   # model2
-        model = DrugNet(pos_enc_dim=256, node_dim=36, hidden_dim=256, out_dim=128, edge_dim=10, rbf_dim=15).to(device)   # model
+        model = DrugNet_3(pos_enc_dim=256, node_dim=36, hidden_dim=256, out_dim=128, edge_dim=10, rbf_dim=15).to(device)   # model
         task = Task(model, dataset, train_idx, valid_idx)
         train_loss_lst = []
         valid_loss_lst = []

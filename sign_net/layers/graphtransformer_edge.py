@@ -20,6 +20,14 @@ class MultiHeadAttentionLayer_edge(MessagePassing):
         self.V = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
         self.edge_feats_projection = nn.Linear(edge_dim, out_dim*num_heads, bias=using_bias)
         
+        self.reset_parameters()
+        
+    def reset_parameters(self):
+        self.Q.reset_parameters()
+        self.K.reset_parameters()
+        self.V.reset_parameters()
+        self.edge_feats_projection.reset_parameters()
+        
     def forward(self, node_feats, edge_feats, edge_index):
         v, z, edge_feat = self.propagate(edge_index=edge_index, x=node_feats, edge_feats=edge_feats)
         
@@ -63,6 +71,14 @@ class MultiHeadAttentionLayer_edge_2(MessagePassing):
         self.K = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
         self.V = nn.Linear(in_dim, out_dim*num_heads, bias=using_bias)
         self.edge_feats_projection = nn.Linear(edge_dim, out_dim*num_heads, bias=using_bias)
+        
+        self.reset_parameters()
+        
+    def reset_parameters(self):
+        self.Q.reset_parameters()
+        self.K.reset_parameters()
+        self.V.reset_parameters()
+        self.edge_feats_projection.reset_parameters()
         
     def forward(self, input1, input2, edge_feats, edge_index):
         v, z, edge_feat = self.propagate(edge_index=edge_index, input1=input1, input2=input2, edge_feats=edge_feats)
