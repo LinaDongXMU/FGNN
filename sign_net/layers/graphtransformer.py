@@ -27,7 +27,7 @@ class MultiHeadAttentionLayer(MessagePassing):
     def forward(self, node_feats, edge_index):
         v, z = self.propagate(edge_index=edge_index, x=node_feats)
         
-        node_feats = v / z + torch.full_like(z, 1e-6)
+        node_feats = v / (z + torch.full_like(z, 1e-6))
         return node_feats
         
     def message(self, x_i, x_j):
@@ -72,7 +72,7 @@ class MultiHeadAttentionLayer_2(MessagePassing):
     def forward(self, input1, input2, edge_index):
         v, z = self.propagate(edge_index=edge_index, input1=input1, input2=input2)
         
-        node_feats = v / z + torch.full_like(z, 1e-6)
+        node_feats = v / (z + torch.full_like(z, 1e-6))
         return node_feats
         
     def message(self, input1_i, input2_j):

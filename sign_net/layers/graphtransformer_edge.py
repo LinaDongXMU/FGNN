@@ -31,7 +31,7 @@ class MultiHeadAttentionLayer_edge(MessagePassing):
     def forward(self, node_feats, edge_feats, edge_index):
         v, z, edge_feat = self.propagate(edge_index=edge_index, x=node_feats, edge_feats=edge_feats)
         
-        node_feats = v / z + torch.full_like(z, 1e-6)
+        node_feats = v / (z + torch.full_like(z, 1e-6))
         return node_feats, edge_feat
         
     def message(self, x_i, x_j, edge_feats):
@@ -83,7 +83,7 @@ class MultiHeadAttentionLayer_edge_2(MessagePassing):
     def forward(self, input1, input2, edge_feats, edge_index):
         v, z, edge_feat = self.propagate(edge_index=edge_index, input1=input1, input2=input2, edge_feats=edge_feats)
         
-        node_feats = v / z + torch.full_like(z, 1e-6)
+        node_feats = v / (z + torch.full_like(z, 1e-6))
         return node_feats, edge_feat
         
     def message(self, input1_i, input2_j, edge_feats):
