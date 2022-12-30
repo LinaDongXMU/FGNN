@@ -1,4 +1,4 @@
-# Reliable prediction of the binding affinity of protein-ligand complexes with fusion of graph neural networks and 3D structure-based complex graph
+# FGNN: Reliable prediction of the binding affinity of protein-ligand complexes with fusion of graph neural networks and 3D structure-based complex graph
 
 The work has been submitted.
 
