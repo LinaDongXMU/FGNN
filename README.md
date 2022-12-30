@@ -3,9 +3,13 @@
 The work has been submitted.
 
 After download FGNN, you need to do these firstly:
+
 mkdir data/cache
+
 mkdir data/data_cache
+
 mkdir pdbbind2016/testset
+
 
 ## 1. Environment
 conda env create -f environment-data.yml
