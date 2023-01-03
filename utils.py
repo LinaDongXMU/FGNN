@@ -1,14 +1,14 @@
+import numpy as np
 import torch
-from joblib import Parallel, cpu_count, delayed
-from tqdm import tqdm
-from scipy import sparse
 import torch.nn.functional as F
+from joblib import Parallel, cpu_count, delayed
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import mean_squared_error
-from torch_geometric.utils import get_laplacian, to_undirected, to_scipy_sparse_matrix, degree
+from torch_geometric.utils import get_laplacian, to_undirected
 from torch_scatter import scatter_add
 from torch_sparse import SparseTensor
-import numpy as np
+from tqdm import tqdm
+
 
 # The needed pretransform to save result of EVD
 class PETransform(object): 

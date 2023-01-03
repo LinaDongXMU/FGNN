@@ -1,14 +1,12 @@
 import torch
 import torch.nn as nn
-import torch.functional as F
-from torch_geometric.nn import global_mean_pool, AttentiveFP, JumpingKnowledge, MessagePassing, MLP
-from torch_scatter import scatter
+from torch_geometric.nn import MLP, AttentiveFP, MessagePassing
+from torch_geometric.nn.conv import GINEConv
+from torch_geometric.nn.dense.linear import Linear
+from torch_geometric.nn.inits import reset
+from torch_geometric.nn.models.basic_gnn import BasicGNN
 from utils import *
-                                                                                                                                                                                                                                                                                                                                                                                       
-from torch_geometric.nn.conv import GINEConv                                  
-from torch_geometric.nn.dense.linear import Linear                            
-from torch_geometric.nn.inits import reset                                    
-from torch_geometric.nn.models.basic_gnn import BasicGNN      
+
 
 class RegressionLayer(nn.Module):                                                                                        
     def __init__(self, input_dim):                                                                                       
@@ -117,6 +115,7 @@ class DrugNet(nn.Module):
                                out_channels=out_dim, edge_dim=rbf_dim, num_layers=3, num_timesteps=3)
         
         self.regression = RegressionLayer(out_dim)
+        self.reset_parameters()
 
     def reset_parameters(self):
         self.sign_net.reset_parameters()
@@ -126,11 +125,9 @@ class DrugNet(nn.Module):
         node_feat = data.x.float()
         edge_index = data.edge_index
         dist_rbf = data.dist_rbf.float()
-        pos = self.sign_net(data)   # node_num, 10
+        pos = self.sign_net(data)
         x = torch.cat([node_feat, pos], dim=-1)
         batch= data.batch.to(torch.long)
         graph = self.gnn(x, edge_index, dist_rbf, batch)
-        # print(node.shape)
-        # graph = global_mean_pool(node, data.batch)
         out = self.regression(graph)
         return out                                                                

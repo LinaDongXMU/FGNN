@@ -1,20 +1,20 @@
-import json                                                                                                                                                                                       
-import os                                                                                                                                                                                         
-import time                                                                                                                                                                                       
-import pickle                                                                                                                                                                                     
-import torch                                                                                                                                                                                      
-from sklearn.model_selection import KFold                                                                                                                                                         
-from torch import optim                                                                                                                                                                           
-from torch.utils.data import SubsetRandomSampler                                                                                                                                                  
-from torch_geometric.loader import DataLoader                                                                                                                                                     
-from tqdm import tqdm                                                                                                                                                                             
-import pytorch_warmup as warmup                                                                                                                                                                   
-                                                                                                                                                                                                  
-from dataset import MyDataset                                                                                                                         
-from model import *                                                                                                                                                        
-from utils import get_score                                                                                                                                                                       
-                                                                                                                                                                                                  
-                                                                                                                                                                                                  
+import json
+import os
+import pickle
+import time
+
+import pytorch_warmup as warmup
+import torch
+from dataset import MyDataset
+from model import *
+from sklearn.model_selection import KFold
+from torch import optim
+from torch.utils.data import SubsetRandomSampler
+from torch_geometric.loader import DataLoader
+from tqdm import tqdm
+from utils import get_score
+
+
 class Task():
     def __init__(self, model, dataset, train_idx, valid_idx):
         self.model = model
@@ -35,16 +35,10 @@ class Task():
         label_lst = []
         train_pred = []
         for data in self.train_loader:
-            data = data.to(device)   # model1
-            # node = data.x.float().to(device)     # model2              
-            # edge_index = data.edge_index.to(device)   # model2   
-            # coords = data.coords.to(device)   # model2   
-            # dist_rbf = data.dist_rbf.float().to(device)   # model2   
-            # batch = data.batch.to(device)   # model2   
+            data = data.to(device)
             label = data.y.float().to(device)
             self.optimizer.zero_grad()
-            # predict = self.model(node, edge_index, coords, dist_rbf, batch).squeeze(-1)   # model2   
-            predict = self.model(data).squeeze(-1)   # model1
+            predict = self.model(data).squeeze(-1)
             label_lst.append(label)
             train_pred.append(predict)
             loss = self.criterion(predict, label)
@@ -63,13 +57,7 @@ class Task():
         valid_pred = []
         for data in self.valid_loader:
             data = data.to(device)
-            # node = data.x.float().to(device)
-            # edge_index = data.edge_index.to(device)
-            # coords = data.coords.to(device)
-            # dist_rbf = data.dist_rbf.float().to(device)
-            # batch = data.batch.to(device)
             label = data.y.float().to(device)
-            # predict = self.model(node, edge_index, coords, dist_rbf, batch).squeeze(-1)
             predict = self.model(data).squeeze(-1)
             label_lst.append(label)
             valid_pred.append(predict)
@@ -90,8 +78,7 @@ if __name__ == "__main__":
 
     kf = KFold(n_splits=5, random_state=128, shuffle=True)
     for kfold, (train_idx, valid_idx) in enumerate(kf.split(dataset)):
-        # model = DrugNet(node_dim=36, hidden_dim=64, out_dim=128, edge_dim=15, num_layer=3).to(device)   # model2
-        model = DrugNet(pos_enc_dim=256, node_dim=36, hidden_dim=256, out_dim=128, edge_dim=10, rbf_dim=15).to(device)   # model                                                                                     
+        model = DrugNet(pos_enc_dim=256, node_dim=36, hidden_dim=256, out_dim=128, edge_dim=10, rbf_dim=15).to(device)                                                                                 
         task = Task(model, dataset, train_idx, valid_idx)                                                                                                                                         
         train_loss_lst = []                                                                                                                                                                       
         valid_loss_lst = []                                                                                                                                                                       
