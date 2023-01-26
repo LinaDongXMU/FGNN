@@ -1,6 +1,6 @@
 # FGNN: A scoring function tp predict the binding affinity of protein-ligand complexes 
 
-The work has been submitted to JCIM.
+The work has been submitted.
 
 And the tittle of the work is "Reliable prediction of the binding affinity of protein-ligand complexes with fusion of graph neural networks and 3D structure-based complex graph".
 
