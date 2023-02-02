@@ -1,99 +1,11 @@
+import os
+import pickle
 import numpy as np
-import torch
-import torch.nn.functional as F
 from joblib import Parallel, cpu_count, delayed
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import mean_squared_error
-from torch_geometric.utils import get_laplacian, to_undirected
-from torch_scatter import scatter_add
-from torch_sparse import SparseTensor
 from tqdm import tqdm
 
-
-# The needed pretransform to save result of EVD
-class PETransform(object): 
-    def __init__(self, pos_enc_dim, enc_type='lap'):
-        super().__init__()
-        assert enc_type.lower() in ['rw', 'sym'], 'position encoding type error'
-        
-        self.pos_enc_dim = pos_enc_dim
-        self.enc_type = enc_type
-        
-    def __call__(self, data):
-        n = data.num_nodes
-        EigVal, EigVec = self._position_encoding(data, self.enc_type)
-        position_encoding = EigVec[:,1:self.pos_enc_dim+1]
-        
-        if n <= self.pos_enc_dim:
-            position_encoding = F.pad(position_encoding, (0, self.pos_enc_dim - n + 1), value=float('0'))
-            
-        data.pos_enc = position_encoding
-        return data
-
-    def _position_encoding(self, data, norm=None):
-        L_raw = get_laplacian(to_undirected(data.edge_index, num_nodes=data.num_nodes), 
-                              normalization=norm, num_nodes=data.num_nodes)
-        L = SparseTensor(row=L_raw[0][0], col=L_raw[0][1], value=L_raw[1], sparse_sizes=(data.num_nodes, data.num_nodes)).to_dense()
-
-        EigVal, EigVec  = np.linalg.eigh(L)
-        EigVal = torch.from_numpy(EigVal)
-        EigVec = torch.from_numpy(EigVec)
-        return EigVal, EigVec
-
-class EVDTransform(object): 
-    def __init__(self, norm=None):
-        super().__init__()
-        self.norm = norm
-        
-    def __call__(self, data):
-        D, V = EVD_Laplacian(data, self.norm)
-        data.eigen_values = D
-        data.eigen_vectors = V.reshape(-1) # reshape to 1-d to save 
-        return data
-
-def EVD_Laplacian(data, norm=None):
-    L_raw = get_laplacian(to_undirected(data.edge_index, num_nodes=data.num_nodes), 
-                          normalization=norm, num_nodes=data.num_nodes)
-    L = SparseTensor(row=L_raw[0][0], col=L_raw[0][1], value=L_raw[1], sparse_sizes=(data.num_nodes, data.num_nodes)).to_dense()
-
-    D, V  = torch.linalg.eigh(L)
-    return D, V
-
-def to_dense_EVD(eigS, eigV, batch):
-    # eigS has the same dimension as batch
-    batch_size = int(batch.max()) + 1
-    num_nodes = scatter_add(batch.new_ones(eigS.size(0)), batch, dim=0, dim_size=batch_size)
-    cum_nodes = torch.cat([batch.new_zeros(1), num_nodes.cumsum(dim=0)])
-    max_num_nodes = int(num_nodes.max())
-
-    idx = torch.arange(batch.size(0), dtype=torch.long, device=eigS.device)
-    idx = (idx - cum_nodes[batch]) + (batch * max_num_nodes)
-    eigS_dense = eigS.new_full([batch_size * max_num_nodes], 0) 
-    eigS_dense[idx] = eigS
-    eigS_dense = eigS_dense.view([batch_size, max_num_nodes])
-
-    mask = torch.zeros(batch_size * max_num_nodes, dtype=torch.bool, device=eigS.device)
-    mask[idx] = 1
-    mask = mask.view(batch_size, max_num_nodes)
-    mask_squared = mask.unsqueeze(2) * mask.unsqueeze(1)
-    eigV_dense = eigV.new_full([batch_size * max_num_nodes * max_num_nodes], 0)
-    eigV_dense[mask_squared.reshape(-1)] = eigV
-    eigV_dense = eigV_dense.view([batch_size, max_num_nodes, max_num_nodes])
-
-    # eigS_dense: B x N_max
-    # eigV_dense: B x N_max x N_max
-    return eigS_dense, eigV_dense, mask
-
-def to_dense_list_EVD(eigS, eigV, batch):
-    eigS_dense, eigV_dense, mask = to_dense_EVD(eigS, eigV, batch)
-
-    nmax = eigV_dense.size(1)
-    eigS_dense = eigS_dense.unsqueeze(1).repeat(1, nmax, 1)[mask]
-    eigV_dense = eigV_dense[mask]
-    # eigS_dense: (N1+N2+...+Nb) x N_max
-    # eigV_dense: (N1+N2+...+Nb) x N_max 
-
-    return eigS_dense, eigV_dense
 
 def pmap_multi(pickleable_fn, data, n_jobs=None, verbose=1, desc=None, **kwargs):
   """
@@ -127,6 +39,31 @@ def pmap_multi(pickleable_fn, data, n_jobs=None, verbose=1, desc=None, **kwargs)
   )
 
   return results
+
+def random_split(dataset_size, split_ratio=1, seed=0, shuffle=True):
+    """random splitter"""
+    np.random.seed(seed)
+    indices = list(range(dataset_size))
+    np.random.shuffle(indices)
+    split = int(split_ratio * dataset_size)
+    train_idx, valid_idx = indices[:split], indices[split:]
+    return train_idx, valid_idx
+
+def write_pickle(data, output_path, dataset_name):
+    train = []
+    valid = []
+    test = []
+    for i in data:
+        train.append(i[0])
+        valid.append(i[1])
+        test.append(i[2])
+
+    with open(os.path.join(output_path, dataset_name + '_train.pkl'), 'wb') as f:
+        pickle.dump(train, f)
+    with open(os.path.join(output_path, dataset_name + '_val.pkl'), 'wb') as f:
+        pickle.dump(valid, f)
+    with open(os.path.join(output_path, dataset_name + '_test.pkl'), 'wb') as f:
+        pickle.dump(test, f)
 
 def get_score(label, predict):
     RP = pearsonr(label,predict)[0]
