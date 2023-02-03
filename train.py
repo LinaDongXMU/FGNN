@@ -5,8 +5,6 @@ import time
 
 import pytorch_warmup as warmup
 import torch
-from dataset import MyDataset
-from model import *
 from sklearn.model_selection import KFold
 from torch import optim
 from torch.utils.data import SubsetRandomSampler
@@ -14,20 +12,37 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 from utils import get_score
 
+from FGNN.process.dataset import MyDataset
+from FGNN.source.model import *
+from config import config
+
 
 class Task():
-    def __init__(self, model, dataset, train_idx, valid_idx):
+    def __init__(self, model, dataset, train_idx, valid_idx, config):
         self.model = model
-        self.optimizer = optim.Adam(model.parameters(),lr=0.01)
+        self.device = config.device
+        self.optimizer = optim.Adam(model.parameters(),lr=config.scheduler.lr)
         self.warmup_scheduler = warmup.UntunedExponentialWarmup(self.optimizer)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.5, cooldown=30, min_lr=1e-6)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 
+                                                              mode=config.scheduler.mode, 
+                                                              factor=config.scheduler.factor, 
+                                                              cooldown=config.scheduler.cooldown, 
+                                                              min_lr=config.scheduler.min_lr)
         self.criterion = nn.MSELoss()
         
         train_subsampler = SubsetRandomSampler(train_idx)
         valid_subsampler = SubsetRandomSampler(valid_idx)
 
-        self.train_loader = DataLoader(dataset, shuffle=False, batch_size=64, sampler=train_subsampler, num_workers=4)
-        self.valid_loader = DataLoader(dataset, shuffle=False, batch_size=64, sampler=valid_subsampler, num_workers=4)
+        self.train_loader = DataLoader(dataset, 
+                                       shuffle=False, 
+                                       batch_size=config.dataset.batch_size, 
+                                       sampler=train_subsampler, 
+                                       num_workers=config.dataset.num_workers)
+        self.valid_loader = DataLoader(dataset, 
+                                       shuffle=False, 
+                                       batch_size=config.dataset.batch_size, 
+                                       sampler=valid_subsampler, 
+                                       num_workers=config.dataset.num_workers)
     
     def train(self):
         self.model.train()
@@ -35,8 +50,8 @@ class Task():
         label_lst = []
         train_pred = []
         for data in self.train_loader:
-            data = data.to(device)
-            label = data.y.float().to(device)
+            data = data.to(self.device)
+            label = data.y.float().to(self.device)
             self.optimizer.zero_grad()
             predict = self.model(data).squeeze(-1)
             label_lst.append(label)
@@ -56,8 +71,8 @@ class Task():
         label_lst = []
         valid_pred = []
         for data in self.valid_loader:
-            data = data.to(device)
-            label = data.y.float().to(device)
+            data = data.to(self.device)
+            label = data.y.float().to(self.device)
             predict = self.model(data).squeeze(-1)
             label_lst.append(label)
             valid_pred.append(predict)
@@ -66,23 +81,22 @@ class Task():
         
         loss_per_epoch_test = loss_per_epoch_test / len(self.valid_loader)
         return loss_per_epoch_test, torch.cat(valid_pred, dim=0).tolist(), torch.cat(label_lst, dim=0).tolist()
-
-if __name__ == "__main__":
     
-    device = 'cuda'
-    epochs = 300
-    transform = PETransform(pos_enc_dim=256, enc_type='sym')
-    print('Loading Data')
-    dataset = MyDataset('./data/pdbbind2016_train.pkl', transform=transform)
-    print('Loading Done')
+def run(config):
+    device = config.device
+    transform = PETransform(pos_enc_dim=config.dataset.pos_enc_dim, 
+                            enc_type=config.dataset.enc_type)
+
+    dataset = MyDataset(data_path=config.dataset.path, 
+                        transform=transform)
 
     kf = KFold(n_splits=5, random_state=128, shuffle=True)
     for kfold, (train_idx, valid_idx) in enumerate(kf.split(dataset)):
-        model = DrugNet(pos_enc_dim=256, node_dim=36, hidden_dim=256, out_dim=128, edge_dim=10, rbf_dim=15).to(device)                                                                                 
-        task = Task(model, dataset, train_idx, valid_idx)                                                                                                                                         
+        model = DrugNet(config.model).to(device)                                                                                 
+        task = Task(model, dataset, train_idx, valid_idx, config)                                                                                                                                         
         train_loss_lst = []                                                                                                                                                                       
-        valid_loss_lst = []                                                                                                                                                                       
-        time_lst = []                                                                                                                                                                             
+        valid_loss_lst = []                                                                                                                                                                 
+        time_lst = []                                                                                                                                                                          
         train_rp_lst = []                                                                                                                                                                         
         train_rs_lst = []                                                                                                                                                                         
         valid_rp_lst = []                                                                                                                                                                         
@@ -91,7 +105,7 @@ if __name__ == "__main__":
                                                                                                                                                                                                   
         min_loss = 10.0                                                                                                                                                                           
         start_time =time.time()                                                                                                                                                                   
-        for epoch in tqdm(range(epochs)):                                                                                                                                                         
+        for epoch in tqdm(range(config.epoch)):                                                                                                                                                         
             # ——————————————————————train————————————————————————                                                                                    
             loss_per_epoch_train, train_predict, train_label = task.train()                                                                                                                       
             execution_time = time.time() - start_time                                                                                                                                             
@@ -136,5 +150,11 @@ if __name__ == "__main__":
         dict = {"train_loss": train_loss_lst, "test_loss": valid_loss_lst, "time": time_lst, "train_rp": train_rp_lst, "train_rs": train_rs_lst, "test_rp": valid_rp_lst, "test_rs": valid_rs_lst}
         with open(save_path + f"train_gin{kfold}.json", "w") as f:                                                                                                                                
             json.dump(dict, f)                                                                                                                                                                    
-                                                                                                                                                                                                  
-    print('Finished training ')                                                                                                                                                                   
+  
+if __name__ == "__main__":
+    print('='*20)
+    print(config)
+    print('='*20)
+    run(config)
+    
+                                                                                                                                                                 

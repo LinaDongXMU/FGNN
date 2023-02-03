@@ -1,471 +1,98 @@
 """
 Preprocessing code for the protein-ligand complex.
 """
-import argparse                                                                                                                                                                                                           
-import os                                                                                                                                                                                                                 
-import pickle                                                                                                                                                                                                             
-from functools import partial                                                                                                                                                                                             
-                                                                                                                                                                                                                          
-import numpy as np                                                                                                                                                                                                        
-import openbabel                                                                                                                                                                                                          
-from openbabel import pybel                                                                                                                                                                                               
-from scipy.spatial import distance, distance_matrix                                                                                                                                                                       
-                                                                                                                                                                                                                          
-from featurizer import Featurizer                                                                                                                                                                                         
-from utils import *                                                                                                                                                                                                       
-                                                                                                                                                                                                                         
-                                                                                                                                                                                                                          
-def rbf_distance_featurizer(dist_list, divisor=1) -> torch.Tensor:                                                                                                                                                        
-    # you want to use a divisor that is close to 4/7 times the average distance that you want to encode                                                                                                                   
-    length_scale_list = [1.5 ** x for x in range(15)]                                                                                                                                                                     
-    center_list = [0. for _ in range(15)]                                                                                                                                                                                 
-                                                                                                                                                                                                                          
-    num_edge = len(dist_list)                                                                                                                                                                                             
-    dist_list = np.array(dist_list)                                                                                                                                                                                       
-                                                                                                                                                                                                                          
-    transformed_dist = [np.exp(- ((dist_list / divisor) ** 2) / float(length_scale))                                                                                                                                      
-                        for length_scale, center in zip(length_scale_list, center_list)]                                                                                                                                  
-                                                                                                                                                                                                                          
-    transformed_dist = np.array(transformed_dist).T                                                                                                                                                                       
-    transformed_dist = transformed_dist.reshape((num_edge, -1))                                                                                                                                                           
-    return torch.from_numpy(transformed_dist.astype(np.float32))                                                                                                                                                          
-                                                                                                                                                                                                                          
-def pocket_atom_num_from_mol2(name, path):                                                                                                                                                                  
-    n = 0                                                                                                                                                                                                                 
-    with open('%s/%s/%s_pocket.mol2' % (path, name, name)) as f:                                                                                                                                        
-        for line in f:                                                                                                                                                                                                    
-            if '<TRIPOS>ATOM' in line:                                                                                                                                                                            
-                break                                                                                                                                                                                                     
-        for line in f:                                                                                                                                                                                                    
-            cont = line.split()
-            try:                                                                                                                                                                                          
-                if '<TRIPOS>BOND' in line or cont[7] == 'HOH':                                                                                                                                                   
-                    break                                                                                                                                                                                                     
-                n += int(cont[5][0] != 'H') 
-            except:
-                print(name)                                                                                                                                                                         
-    return n                                                                                                                                                                                           
-                                                                                                                                                                                                                          
-def pocket_atom_num_from_pdb(name, path):                                                                                                                                                                 
-    n = 0                                                                                                                                                                                                                 
-    with open('%s/%s/%s_pocket.pdb' % (path, name, name)) as f:                                                                                                                                          
-        for line in f:                                                                                                                                                                                                    
-            if 'REMARK' in line:                                                                                                                                                                              
-                break                                                                                                                                                                                                     
-        for line in f:                                                                                                                                                                                                    
-            cont = line.split()                                                                                                                                                                                           
-            # break                                                                                                                                                                                                       
-            if cont[0] == 'CONECT':                                                                                                                                                                            
-                break                                                                                                                                                                                                     
-            n += int(cont[-1] != 'H' and cont[0] == 'ATOM')                                                                                                                                                
-    return n                                                                                                                                                                                           
-                                                                                                                                                                                                                          
-## function -- feature                                                                                                                                                                                                    
-def gen_feature(path, name, featurizer):                                                                                                                                                   
-    charge_idx = featurizer.FEATURE_NAMES.index('partialcharge')                                                                                                                                                          
-    ligand = next(pybel.readfile('mol2', '%s/%s/%s_ligand.mol2' % (path, name, name)))                                                                                                                  
-    ligand_coords, ligand_features = featurizer.get_features(ligand, molcode=1)                                                                                                   
-    pocket = next(pybel.readfile('mol2' ,'%s/%s/%s_pocket.mol2' % (path, name, name)))                                                                                                                   
-    pocket_coords, pocket_features = featurizer.get_features(pocket, molcode=-1)                                                                                                                              
-    node_num = pocket_atom_num_from_mol2(name, path)                                                                                                                                                             
-    pocket_coords = pocket_coords[:node_num]                                                                                                                                                                     
-    pocket_features = pocket_features[:node_num]                                                                                                                                                                
-    try:                                                                                                                                                                                                                  
-        assert (ligand_features[:, charge_idx] != 0).any()                                                                                                                                                
-        assert (pocket_features[:, charge_idx] != 0).any()                                                                                                                                                            
-        assert (ligand_features[:, :9].sum(1) != 0).all()                                                                                                                                   
-    except:                                                                                                                                                                                                               
-        print(name)                                                                                                                                                                                                       
-    lig_atoms, pock_atoms = [], []                                                                                                                                                                                        
-    for i, atom in enumerate(ligand):                                                                                                                                                                                     
-        if atom.atomicnum > 1:                                                                                                                                                                
-            lig_atoms.append(atom.atomicnum)                                                                                                                                                                 
-    for i, atom in enumerate(pocket):                                                                                                                                                                                     
-        if atom.atomicnum > 1:                                                                                                                                                                                            
-            pock_atoms.append(atom.atomicnum)                                                                                                                                                                  
-    for x in pock_atoms[node_num:]:
-        try:                                                                                                                                                                                       
-            assert x == 8
+import argparse
+import os
+
+from utils import *
+from process.featurizer import *
+
+
+def process_dataset(protein_name, test_lst, path, cutoff):
+    # atomic sets for long-range interactions
+    atom_types = [6,7,8,9,15,16,17,35,53]
+    atom_types_ = [6,7,8,16]
+    # atomic feature generation
+    featurizer = Featurizer(save_molecule_codes=False)
+    processed_dict = {}
+    processed_dict[protein_name] = gen_feature(path, protein_name, featurizer)
+    processed_dict = pairwise_atomic_types(path, processed_dict, atom_types, atom_types_)
+
+    # load pka (binding affinity) data
+    pk_dict = load_pk_data(path+'index/INDEX_general_PL_data.2016')
+    data_dict = processed_dict
+    for k,v in processed_dict.items():
+        v['pk'] = pk_dict[k]
+        data_dict[k] = v
+
+    training_id, training_data, training_pk = [], [], []
+    test_id, test_data, test_pk = [], [], []
+    fault=[]
+    for k, v in data_dict.items():
+        ligand = (v['lig_fea'], v['lig_co'], v['lig_atoms'], v['lig_eg'])
+        pocket = (v['pock_fea'], v['pock_co'], v['pock_atoms'], v['pock_eg'])
+        try:
+            graph = cons_lig_pock_graph_with_spatial_context(ligand, pocket, add_fea=3, theta=cutoff, keep_pock=False, pocket_spatial=True)
+            cofeat, pk = v['type_pair'], v['pk']
+            graph = list(graph) + [cofeat]
+            if k in test_lst:
+                test_id.append(k)
+                test_data.append(graph)
+                test_pk.append(pk)
+                continue
+            training_id.append(k)
+            training_data.append(graph)
+            training_pk.append(pk)
         except:
-            print(name)                                                                                                                                                                                                     
-    pock_atoms = pock_atoms[:node_num]                                                                                                                                                                    
-    assert len(lig_atoms)==len(ligand_features) and len(pock_atoms)==len(pocket_features)                                                                                                         
-                                                                                                                                                                                                                          
-    ligand_edges = gen_pocket_graph(ligand)                                                                                                                                                                      
-    pocket_edges = gen_pocket_graph(pocket)                                                                                                                                                                      
-    # print(pocket_edges)                                                                                                                                                                                                 
-    return {'lig_co': ligand_coords, 'lig_fea': ligand_features, 'lig_atoms': lig_atoms, 'lig_eg': ligand_edges, 'pock_co': pocket_coords, 'pock_fea': pocket_features, 'pock_atoms': pock_atoms, 'pock_eg': pocket_edges}
-                                                                                                                                                                                             
-## function -- pocket graph                                                                                                                                                                                               
-def gen_pocket_graph(pocket):                                                                                                                                                                               
-    edge_l = []                                                                                                                                                                                                           
-    idx_map = [-1]*(len(pocket.atoms)+1)                                                                                                                                                                                  
-    idx_new = 0                                                                                                                                                                                                           
-    for atom in pocket:                                                                                                                                                                                                   
-        edges = []                                                                                                                                                                                                        
-        a1_sym = atom.atomicnum                                                                                                                                                                                           
-        a1 = atom.idx                                                                                                                                                                                                     
-        if a1_sym == 1:                                                                                                                                                                                                   
-            continue                                                                                                                                                                                                      
-        idx_map[a1] = idx_new                                                                                                                                                                                             
-        idx_new += 1                                                                                                                                                                                                      
-        for natom in openbabel.OBAtomAtomIter(atom.OBAtom):                                                                                                                                                               
-            if natom.GetAtomicNum() == 1:                                                                                                                                                                                 
-                continue                                                                                                                                                                                                  
-            a2 = natom.GetIdx()                                                                                                                                                                                           
-            bond = openbabel.OBAtom.GetBond(natom,atom.OBAtom)                                                                                                                                                            
-            bond_t = bond.GetBondOrder()                                                                                                                                                                                  
-            edges.append((a1,a2,bond_t))                                                                                                                                                                                  
-        edge_l += edges                                                                                                                                                                                                   
-    edge_l_new = []                                                                                                                                                                                                       
-    for a1,a2,t in edge_l:                                                                                                                                                                                                
-        a1_, a2_ = idx_map[a1], idx_map[a2]                                                                                                                                                                               
-        assert((a1_!=-1)&(a2_!=-1))                                                                                                                                                                                       
-        edge_l_new.append((a1_,a2_,t))                                                                                                                                                                                    
-    return edge_l_new                                                                                                                                                                                             
-                                                                                                                                                                                                                          
-def dist_filter(dist_matrix, theta):                                                                                                                                                                          
-    pos = np.where(dist_matrix<=theta)                                                                                                                                                                                    
-    ligand_list, pocket_list = pos                                                                                                                                                                                        
-    return ligand_list, pocket_list                                                                                                                                                                      
-                                                                                                                                                                                                                          
-def pairwise_atomic_types(path, processed_dict, atom_types, atom_types_):                                                                                                                       
-    keys = [(i,j) for i in atom_types_ for j in atom_types]                                                                                                                                                 
-    # for name in os.listdir(path):                                                                                                                                                                                       
-    #     if len(name) != 4:                                                                                                                                                                                              
-    #         continue                                                                                                                                                                                                    
-    name = list(processed_dict.keys())[0]                                                                                                                                                                                 
-    ligand = next(pybel.readfile('mol2', '%s/%s/%s_ligand.mol2' % (path, name, name)))                                                                                                              
-    pocket = next(pybel.readfile('pdb' ,'%s/%s/%s_protein.pdb' % (path, name, name)))                                                                                                                 
-    coords_lig = np.vstack([atom.coords for atom in ligand])                                                                                                                                                       
-    coords_poc = np.vstack([atom.coords for atom in pocket])                                                                                                                                                       
-    atom_map_lig = [atom.atomicnum for atom in ligand]                                                                                                                                                         
-    atom_map_poc = [atom.atomicnum for atom in pocket]                                                                                                                                                         
-    dm = distance_matrix(coords_lig, coords_poc)                                                                                                                                                           
-    ligs, pocks = dist_filter(dm, 12)                                                                                                                                                                      
-                                                                                                                                                                                                                          
-    fea_dict = {k: 0 for k in keys}                                                                                                                                                                       
-    for x, y in zip(ligs, pocks):                                                                                                                                                                                         
-        x, y = atom_map_lig[x], atom_map_poc[y]                                                                                                                                                           
-        if x not in atom_types or y not in atom_types_: continue                                                                                                                                               
-        fea_dict[(y, x)] += 1                                                                                                                                                                                 
-    processed_dict[name]['type_pair'] = list(fea_dict.values())                                                                                                                       
-                                                                                                                                                                                                                          
-    return processed_dict                                                                                                                                                                                        
-                                                                                                                                                                                                                          
-def load_pk_data(data_path):                                                                                                                                                                                       
-    res = dict()                                                                                                                                                                                                          
-    with open(data_path) as f:                                                                                                                                                                                            
-        for line in f:                                                                                                                                                                                                    
-            if '#' in line:                                                                                                                                                                                               
-                continue                                                                                                                                                                                                  
-            cont = line.strip().split()                                                                                                                                                                                   
-            if len(cont) < 5:                                                                                                                                                                                             
-                continue                                                                                                                                                                                                  
-            code, pk = cont[0], cont[3]                                                                                                                                                                                   
-            res[code] = float(pk)                                                                                                                                                                                         
-    return res                                                                                                                                                                                    
-                                                                                                                                                                                                                          
-def get_lig_atom_types(feat):                                                                                                                                                                                             
-    pos = np.where(feat[:,:9]>0)                                                                                                                                                                                          
-    src_list, dst_list = pos                                                                                                                                                                                              
-    return dst_list                                                                                                                                                                                                       
-                                                                                                                                                                                                                          
-def get_pock_atom_types(feat):                                                                                                                                                                                            
-    pos = np.where(feat[:,18:27]>0)                                                                                                                                                                                       
-    src_list, dst_list = pos                                                                                                                                                                                              
-    return dst_list                                                                                                                                                                                                       
-                                                                                                                                                                                                                          
-def cons_spatial_gragh(dist_matrix, theta=5):                                                                                                                                                            
-    pos = np.where((dist_matrix<=theta)&(dist_matrix!=0))                                                                                                                                                                 
-    src_list, dst_list = pos                                                                                                                                                                                              
-    dist_list = dist_matrix[pos]                                                                                                                                                                                          
-    edges = [(x,y) for x,y in zip(src_list, dst_list)]                                                                                                                                                                    
-    return edges, dist_list                                                                                                                                                                                 
-                                                                                                                                                                                                                          
-def cons_mol_graph(edges, feas):                                                                                                                                                                        
-    size = feas.shape[0]                                                                                                                                                                                                  
-    edges = [(x,y) for x,y,t in edges]                                                                                                                                                                                    
-    return size, feas, edges                                                                                                                                                                               
-                                                                                                                                                                                                                          
-def pocket_subgraph(node_map, edge_list, pock_dist):                                                                                                                                                              
-    edge_l = []                                                                                                                                                                                                           
-    dist_l = []                                                                                                                                                                                                           
-    node_l = set()                                                                                                                                                                                                        
-    for coord, dist in zip(edge_list, np.concatenate([pock_dist, pock_dist])):                                                                                                                                            
-        x,y = coord                                                                                                                                                                                                       
-        if x in node_map and y in node_map:                                                                                                                                                                               
-            x, y = node_map[x], node_map[y]                                                                                                                                                                               
-            edge_l.append((x,y))                                                                                                                                                                                          
-            dist_l.append(dist)                                                                                                                                                                                           
-            node_l.add(x)                                                                                                                                                                                                 
-            node_l.add(y)                                                                                                                                                                                                 
-    dist_l = np.array(dist_l)                                                                                                                                                                                             
-    return edge_l, dist_l                                                                                                                                                                                    
-                                                                                                                                                                                                                          
-def edge_ligand_pocket(dist_matrix, lig_size, theta=4, keep_pock=False, reset_idx=True):                                                                                                         
-                                                                                                                                                                                                                          
-    pos = np.where(dist_matrix<=theta)                                                                                                                                                                         
-    ligand_list, pocket_list = pos                                                                                                                                                                                        
-    if keep_pock: # False                                                                                                                                                                                                 
-        node_list = range(dist_matrix.shape[1])                                                                                                                                                                           
-    else:                                                                                                                                                                                                                 
-        node_list = sorted(list(set(pocket_list)))                                                                                                                                                      
-    node_map = {node_list[i]:i+lig_size for i in range(len(node_list))}                                                                                
-                                                                                                                                                                                                                          
-    dist_list = dist_matrix[pos]                                                                                                                                                                       
-    if reset_idx: # True                                                                                                                                                                                                  
-        edge_list = [(x,node_map[y]) for x,y in zip(ligand_list, pocket_list)]                                                                                                                               
-    else:                                                                                                                                                                                                                 
-        edge_list = [(x,y) for x,y in zip(ligand_list, pocket_list)]                                                                                                                                                      
-                                                                                                                                                                                                                          
-    edge_list += [(y,x) for x,y in edge_list]                                                                                                                                                                   
-    dist_list = np.concatenate([dist_list, dist_list])                                                                                                                                     
-                                                                                                                                                                                                                          
-    return dist_list, edge_list, node_map                                                                                                                                                               
-                                                                                                                                                                                                                          
-def add_identity_fea(lig_fea, pock_fea, comb=1):                                                                                                                                                 
-    if comb == 1:                                                                                                                                                                                                  
-        lig_fea = np.hstack([lig_fea, [[1]]*len(lig_fea)])                                                                                                                                                     
-        pock_fea = np.hstack([pock_fea, [[-1]]*len(pock_fea)])                                                                                                                                             
-    elif comb == 2:                                                                                                                                                                                                       
-        lig_fea = np.hstack([lig_fea, [[1,0]]*len(lig_fea)])                                                                                                                                                              
-        pock_fea = np.hstack([pock_fea, [[0,1]]*len(pock_fea)])                                                                                                                                                           
-    else:                                                                                                                                                                                                                 
-        lig_fea = np.hstack([lig_fea, [[0]*lig_fea.shape[1]]*len(lig_fea)])                                                                                                                                               
-        if len(pock_fea) > 0:                                                                                                                                                                                             
-            pock_fea = np.hstack([[[0]*pock_fea.shape[1]]*len(pock_fea), pock_fea])                                                                                                                                       
-                                                                                                                                                                                                                          
-    return lig_fea, pock_fea                                                                                                                                                                          
-                                                                                                                                                                                                                          
-def get_neighbors(one_hot_src, dst_idx):                                                                                                                                                                                  
-    select_idx = np.nonzero(one_hot_src)                                                                                                                                                                                  
-    neighbors = dst_idx[select_idx]                                                                                                                                                                                       
-    return neighbors.tolist()                                                                                                                                                                                             
-                                                                                                                                                                                                                          
-def D3_info(a, b, c):                                                                                                                                                                                                     
-                                                                                                                                                                                                                    
-    ab = b - a                                                                                                                                                                                                     
-    ac = c - a                                                                                                                                                                                                      
-    cosine_angle = np.dot(ab, ac) / (np.linalg.norm(ab) * np.linalg.norm(ac))                                                                                                                                             
-    cosine_angle = cosine_angle if cosine_angle >= -1.0 else -1.0                                                                                                                                                         
-    angle = np.arccos(cosine_angle)                                                                                                                                                                                       
-                                                                                                                                                                                                                   
-    ab_ = np.sqrt(np.sum(ab ** 2))                                                                                                                                                                                        
-    ac_ = np.sqrt(np.sum(ac ** 2))                                                                                                                                                                                  
-    area = 0.5 * ab_ * ac_ * np.sin(angle)                                                                                                                                                                                
-    return np.degrees(angle), area, ac_                                                                                                                                                                                   
-                                                                                                                                                                                                                          
-def D3_info_cal(nodes_ls, coords):                                                                                                                                                                                        
-    if len(nodes_ls) > 2:                                                                                                                                                                                                 
-        Angles = []                                                                                                                                                                                                       
-        Areas = []                                                                                                                                                                                                        
-        Distances = []                                                                                                                                                                                                    
-        for node_id in nodes_ls[2:]:                                                                                                                                                                                      
-            angle, area, distance = D3_info(coords[nodes_ls[0]], coords[nodes_ls[1]],                                                                                                                                     
-                                            coords[node_id])                                                                                                                                                              
-            Angles.append(angle)                                                                                                                                                                                          
-            Areas.append(area)                                                                                                                                                                                            
-            Distances.append(distance)                                                                                                                                                                                    
-        return [np.max(Angles) * 0.01, np.sum(Angles) * 0.01, np.mean(Angles) * 0.01, np.max(Areas), np.sum(Areas),                                                                                                       
-                np.mean(Areas),                                                                                                                                                                                           
-                np.max(Distances) * 0.1, np.sum(Distances) * 0.1, np.mean(Distances) * 0.1]                                                                                                                               
-    else:                                                                                                                                                                                                                 
-        return [0, 0, 0, 0, 0, 0, 0, 0, 0]                                                                                                                                                                                
-                                                                                                                                                                                                                          
-def get_3d_feature(edge_index, coords):                                                                                                                                                                                   
-    src_idx, dst_idx = edge_index                                                                                                                                                                                         
-                                                                                                                                                                                                                          
-    neighbors_ls = []                                                                                                                                                                                                     
-    for i, src_node in enumerate(src_idx):                                                                                                                                                                                
-        src_node = src_node.tolist()                                                                                                                                                                                      
-        dst_node = dst_idx[i].tolist()                                                                                                                                                                                    
-        tmp = [src_node, dst_node]  # the source node id and destination id of an edge                                                                                                                                    
-        one_hot_src = (src_node == src_idx) #.long()                                                                                                                                                                      
-        neighbors = get_neighbors(one_hot_src, dst_idx)                                                                                                                                                                   
-        neighbors.remove(dst_node)                                                                                                                                                                                        
-        tmp.extend(neighbors)   # [[8,3,4,7], [8,4,3,7],[8,7,3,4]]                                                                                                                                                        
-        neighbors_ls.append(tmp)                                                                                                                           
-    edge_feature = list(map(partial(D3_info_cal, coords=coords), neighbors_ls))                                                                                                                                           
-    return np.array(edge_feature)                                                                                                                                                                                         
-                                                                                                                                                                                                                          
-def cons_lig_pock_graph_with_spatial_context(ligand, pocket, add_fea=2, theta=5, keep_pock=False, pocket_spatial=True):                                                                        
-    lig_fea, lig_coord, lig_atoms_raw, lig_edge = ligand                                                                                                                                                   
-    pock_fea, pock_coord, pock_atoms_raw, pock_edge = pocket                                                                                                                                                              
-                                                                                                                                                                                                                          
-    # inter-relation between ligand and pocket                                                                                                                                                                            
-    lig_size = lig_fea.shape[0]                                                                                                                                                                                   
-    dm = distance_matrix(lig_coord, pock_coord)                                                                                                                                                                  
-    lig_pock_dist, lig_pock_edge, node_map = edge_ligand_pocket(dm, lig_size, theta=theta, keep_pock=keep_pock)                                                                                              
-                                                                                                                                                                                                                          
-    # construct ligand graph & pocket graph                                                                                                                                                                               
-    lig_size, lig_fea, lig_edge = cons_mol_graph(lig_edge, lig_fea)                                                                                       
-    pock_size, pock_fea, pock_edge = cons_mol_graph(pock_edge, pock_fea)                                                                                                                                                  
-                                                                                                                                                                                                                          
-    # construct spatial context graph based on distance                                                                                                                                                                   
-    dm = distance_matrix(lig_coord, lig_coord)                                                                                                                                                                            
-    edges, lig_dist = cons_spatial_gragh(dm, theta=theta)                                                                                                                                                     
-    if pocket_spatial: # True                                                                                                                                                                                             
-        dm_pock = distance_matrix(pock_coord, pock_coord)                                                                                                                                                                 
-        edges_pock, pock_dist = cons_spatial_gragh(dm_pock, theta=theta)                                                                                                                                                  
-    lig_edge = edges                                                                                                                                                                                                      
-    pock_edge = edges_pock                                                                                                                                                                                                
-                                                                                                                                                                                                                          
-    # map new pocket graph                                                                                                                                                                                                
-    pock_size = len(node_map)                                                                                                                                                                                             
-    pock_fea = pock_fea[sorted(node_map.keys())]                                                                                                                                                                          
-    pock_edge, pock_dist = pocket_subgraph(node_map, pock_edge, pock_dist)                                                                                                                                   
-    pock_coord_ = pock_coord[sorted(node_map.keys())]                                                                                                                                                                     
-                                                                                                                                                                                                                          
-    # construct ligand-pocket graph                                                                                                                                                                                       
-    size = lig_size + pock_size                                                                                                                                                                                     
-    lig_fea, pock_fea = add_identity_fea(lig_fea, pock_fea, comb=add_fea)                                                                                                                                                 
-                                                                                                                                                                                                                          
-    feas = np.vstack([lig_fea, pock_fea]) if len(pock_fea) > 0 else lig_fea                                                                                        
-    edges = lig_edge + lig_pock_edge + pock_edge                                                                                       
-    lig_atoms = get_lig_atom_types(feas)                                                                                                                                                                      
-    pock_atoms = get_pock_atom_types(feas)                                                                                                                                                                    
-    assert len(lig_atoms) ==  lig_size and len(pock_atoms) == pock_size                                                                                                                                                   
-                                                                                                                                                                                                                          
-    atoms = np.concatenate([lig_atoms, pock_atoms]) if len(pock_fea) > 0 else lig_atoms                                                                                                                             
-                                                                                                                                                                                                                          
-    lig_atoms_raw = np.array(lig_atoms_raw)                                                                                                                                                                               
-    pock_atoms_raw = np.array(pock_atoms_raw)                                                                                                                                                                             
-    pock_atoms_raw = pock_atoms_raw[sorted(node_map.keys())]                                                                                                                                                              
-    atoms_raw = np.concatenate([lig_atoms_raw, pock_atoms_raw]) if len(pock_atoms_raw) > 0 else lig_atoms_raw                                                                                          
-                                                                                                                                                                                                                          
-    coords = np.vstack([lig_coord, pock_coord_]) if len(pock_fea) > 0 else lig_coord                                                                                        
-    if len(pock_fea) > 0:                                                                                                                                                                                                 
-        assert size==max(node_map.values())+1                                                                                                                                                                             
-    assert feas.shape[0]==coords.shape[0]                                                                                                                                                                                 
-                                                                                                                                                                                                                          
-    # construct 3d edge_feat                                                                                                                                                                                              
-    dist_mat = distance.cdist(coords, coords, 'euclidean')                                                                                                                                                                
-    np.fill_diagonal(dist_mat, np.inf)                                                                                                                                                                                    
-    dist_graph_base = dist_mat.copy()                                                                                                                                                                                     
-    dist_feat = dist_graph_base[dist_graph_base < theta].reshape(-1,1)                                                                                                                                                    
-    edge_index_i = np.array([i[0] for i in edges])[np.newaxis,:]                                                                                                                                                          
-    edge_index_j = np.array([j[1] for j in edges])[np.newaxis,:]                                                                                                                                                          
-    edge_index = np.concatenate([edge_index_i, edge_index_j], axis=0)                                                                                                                                                     
-    edge_feat_3d = get_3d_feature(edge_index, coords)                                                                                                                                                                     
-    edge_feat_3d[np.isinf(edge_feat_3d)] = np.nan                                                                                                                                                                         
-    edge_feat_3d[np.isnan(edge_feat_3d)] = 0                                                                                                                                                                              
-    edge_feat = np.hstack((edge_feat_3d, dist_feat))                                                                                                                                                                      
-    edge_feat_rbf = rbf_distance_featurizer(dist_feat)                                                                                                                                                                    
-    # return lig_size, coords, feas, edges, atoms_raw                                                                                                                                             
-                                                                                                                                                                                                                          
-    return feas, coords, edge_index, edge_feat, edge_feat_rbf                                                                                                                                                             
-                                                                                                                                                                                                                          
-def random_split(dataset_size, split_ratio=1, seed=0, shuffle=True):                                                                                                                                                      
-    """random splitter"""                                                                                                                                                                                                 
-    np.random.seed(seed)                                                                                                                                                                                                  
-    indices = list(range(dataset_size))                                                                                                                                                                                   
-    np.random.shuffle(indices)                                                                                                                                                                                            
-    split = int(split_ratio * dataset_size)                                                                                                                                                                               
-    train_idx, valid_idx = indices[:split], indices[split:]                                                                                                                                                               
-    return train_idx, valid_idx                                                                                                                                                                                           
-                                                                                                                                                                                                                          
-def process_dataset(protein_name, test_lst, path, cutoff):                                                                                                                                                                
-    # atomic sets for long-range interactions                                                                                                                                                                             
-    atom_types = [6,7,8,9,15,16,17,35,53]                                                                                                                                                                                 
-    atom_types_ = [6,7,8,16]                                                                                                                                                                                              
-    # atomic feature generation                                                                                                                                                                                           
-    featurizer = Featurizer(save_molecule_codes=False)                                                                                                                                                                    
-    processed_dict = {}                                                                                                                                                                                                   
-    processed_dict[protein_name] = gen_feature(path, protein_name, featurizer)                                                                                                                                            
-    processed_dict = pairwise_atomic_types(path, processed_dict, atom_types, atom_types_)                                                                                                                                 
-                                                                                                                                                                                                                          
-    # load pka (binding affinity) data                                                                                                                                                                                    
-    pk_dict = load_pk_data(path+'index/INDEX_general_PL_data.2016')                                                                                                                                                       
-    data_dict = processed_dict                                                                                                                                                                                            
-    for k,v in processed_dict.items():                                                                                                                                                                                    
-        v['pk'] = pk_dict[k]                                                                                                                                                                                              
-        data_dict[k] = v                                                                                                                                                                                                  
-                                                                                                                                                                                                                          
-    training_id, training_data, training_pk = [], [], []                                                                                                                                                                     
-    test_id, test_data, test_pk = [], [], []                                                                                                                                                                              
-    fault=[]                                                                                                                                                                                                              
-    for k, v in data_dict.items():                                                                                                                                                                                        
-        ligand = (v['lig_fea'], v['lig_co'], v['lig_atoms'], v['lig_eg'])                                                                                                                                                 
-        pocket = (v['pock_fea'], v['pock_co'], v['pock_atoms'], v['pock_eg'])                                                                                                                                             
-        try:                                                                                                                                                                                                              
-            graph = cons_lig_pock_graph_with_spatial_context(ligand, pocket, add_fea=3, theta=cutoff, keep_pock=False, pocket_spatial=True)                                              
-            cofeat, pk = v['type_pair'], v['pk']                                                                                                                                                                          
-            graph = list(graph) + [cofeat]                                                                                                                                                                                
-            if k in test_lst:                                                                                                                                                                                             
-                test_id.append(k)                                                                                                                                                                                         
-                test_data.append(graph)                                                                                                                                                                                   
-                test_pk.append(pk)                                                                                                                                                                                        
-                continue                                                                                                                                                                                                  
-            training_id.append(k)                                                                                                                                                                                          
-            training_data.append(graph)                                                                                                                                                                                    
-            training_pk.append(pk)                                                                                                                                                                                         
-        except:                                                                                                                                                                                                           
-            fault.append(k)                                                                                                                                                                                               
-    # split train and valid                                                                                                                                                                                               
-    train_idxs, valid_idxs = random_split(len(training_data), split_ratio=1, seed=2020, shuffle=True)                                                                                                                      
-    train_i = [training_id[i] for i in train_idxs]                                                                                                                                                                         
-    train_g = [training_data[i] for i in train_idxs]                                                                                                                                                                       
-    train_y = [training_pk[i] for i in train_idxs]                                                                                                                                                                         
-    valid_i = [training_id[i] for i in valid_idxs]                                                                                                                                                                         
-    valid_g = [training_data[i] for i in valid_idxs]                                                                                                                                                                       
-    valid_y = [training_pk[i] for i in valid_idxs]                                                                                                                                                                         
-    train = (train_i, train_g, train_y)                                                                                                                                                                                   
-    valid = (valid_i, valid_g, valid_y)                                                                                                                                                                                   
-    test = (test_id, test_data, test_pk)                                                                                                                                                                                  
-    return train, valid, test                                                                                                                                                                                             
-                                                                                                                                                                                                                          
-def write_pickle(data, output_path, dataset_name):                                                                                                                                                                        
-    train = []                                                                                                                                                                                                            
-    valid = []                                                                                                                                                                                                            
-    test = []                                                                                                                                                                                                             
-    for i in data:                                                                                                                                                                                                        
-        train.append(i[0])                                                                                                                                                                                                
-        valid.append(i[1])                                                                                                                                                                                                
-        test.append(i[2])                                                                                                                                                                                                 
-                                                                                                                                                                                                                          
-    with open(os.path.join(output_path, dataset_name + '_train.pkl'), 'wb') as f:                                                                                                                                         
-        pickle.dump(train, f)                                                                                                                                                                                             
-    with open(os.path.join(output_path, dataset_name + '_val.pkl'), 'wb') as f:                                                                                                                                           
-        pickle.dump(valid, f)                                                                                                                                                                                             
-    with open(os.path.join(output_path, dataset_name + '_test.pkl'), 'wb') as f:                                                                                                                                          
-        pickle.dump(test, f)                                                                                                                                                                                              
-                                                                                                                                                                                                                          
-def pocket_mol2(path):                                                                                                                                                                                                    
-     for filename in os.listdir(path):                                                                                                                                                                                    
-         pocket_pdb=os.path.join(path,filename,str(filename)+'_pocket.pdb')                                                                                                                                               
-         pocket_mol2=os.path.join(path,filename,str(filename)+'_pocket.mol2')                                                                                                                                             
-         cmd='obabel -ipdb '+str(pocket_pdb)+' -omol2 -O '+str(pocket_mol2)                                                                                                                                               
-         os.system(cmd)                                                                                                                                                                                                   
-                                                                                                                                                                                                                          
-if __name__ == "__main__":                                                                                                                                                                                                
-    parser = argparse.ArgumentParser()                                                                                                                                                                                    
-    parser.add_argument('--data_path_test', type=str, default='./pdbbind2016/testset')                                                                                                                                         
-    parser.add_argument('--data_path_training', type=str, default='./pdbbind2016/trainingset')                                                                                                                                   
-    parser.add_argument('--output_path', type=str, default='./data/')                                                                                                                                                    
-    parser.add_argument('--dataset_name', type=str, default='pdbbind2016')                                                                                                                                                
-    parser.add_argument('--n_jobs', type=int, default=-1)                                                                                                                                                                 
-    parser.add_argument('--cutoff', type=float, default=5.5)                                                                                                                                                              
-    parser.add_argument('--file_process', type=bool, default=True)                                                                                                                                                       
-    args = parser.parse_args()                                                                                                                                                                                            
-                                                                                                                                                                                                                          
-    if args.file_process:                                                                                                                                                                                                 
-        print('processing file')                                                                                                                                                                                          
-        pocket_mol2(args.data_path_test)                                                                                                                                                                                  
-        pocket_mol2(args.data_path_training)                                                                                                                                                                               
-        print('done')                                                                                                                                                                                                     
-    else:                                                                                                                                                                                                                 
-        print('ignore file process')                                                                                                                                                                                      
-                                                                                                                                                                                                                          
-    test_set_list = [x for x in os.listdir(args.data_path_test)]                                                                                                                                           
-    training_set_list = [x for x in os.listdir(args.data_path_training)]                                                                                                                                     
-                                                                                                                                                                                                                          
-    print('processing dataset')                                                                                                                                                                                           
-    data = pmap_multi(process_dataset, zip(training_set_list),                                                                                                                                                             
-                      n_jobs=args.n_jobs,                                                                                                                                                                                 
-                      desc='Get receptors',                                                                                                                                                                               
-                      test_lst=test_set_list,                                                                                                                                                                             
-                      path=args.data_path_training,                                                                                                                                                                        
-                      cutoff=args.cutoff)                                                                                                                                                                                 
-    write_pickle(data, args.output_path, args.dataset_name)                                                                                                                                                               
-    print('done')                                                                                                                                                                                                         
+            fault.append(k)
+    # split train and valid
+    train_idxs, valid_idxs = random_split(len(training_data), split_ratio=1, seed=2020, shuffle=True)
+    train_i = [training_id[i] for i in train_idxs]
+    train_g = [training_data[i] for i in train_idxs]
+    train_y = [training_pk[i] for i in train_idxs]
+    valid_i = [training_id[i] for i in valid_idxs]
+    valid_g = [training_data[i] for i in valid_idxs]
+    valid_y = [training_pk[i] for i in valid_idxs]
+    train = (train_i, train_g, train_y)
+    valid = (valid_i, valid_g, valid_y)
+    test = (test_id, test_data, test_pk)
+    return train, valid, test
+
+def pocket_mol2(path):
+     for filename in os.listdir(path):
+         pocket_pdb=os.path.join(path,filename,str(filename)+'_pocket.pdb')
+         pocket_mol2=os.path.join(path,filename,str(filename)+'_pocket.mol2')
+         cmd='obabel -ipdb '+str(pocket_pdb)+' -omol2 -O '+str(pocket_mol2)
+         os.system(cmd)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data_path_test', type=str, default='./pdbbind2016/testset')
+    parser.add_argument('--data_path_training', type=str, default='./pdbbind2016/trainingset')
+    parser.add_argument('--output_path', type=str, default='./data/')
+    parser.add_argument('--dataset_name', type=str, default='pdbbind2016')
+    parser.add_argument('--n_jobs', type=int, default=-1)
+    parser.add_argument('--cutoff', type=float, default=5.5)
+    parser.add_argument('--file_process', type=bool, default=True)
+    args = parser.parse_args()
+
+    if args.file_process:
+        print('processing file')
+        pocket_mol2(args.data_path_test)
+        pocket_mol2(args.data_path_training)
+        print('done')
+    else:
+        print('ignore file process')
+
+    test_set_list = [x for x in os.listdir(args.data_path_test)]
+    training_set_list = [x for x in os.listdir(args.data_path_training)]
+
+    print('processing dataset')
+    data = pmap_multi(process_dataset, zip(training_set_list),
+                      n_jobs=args.n_jobs,
+                      desc='Get receptors',
+                      test_lst=test_set_list,
+                      path=args.data_path_training,
+                      cutoff=args.cutoff)
+    write_pickle(data, args.output_path, args.dataset_name)
+    print('done')

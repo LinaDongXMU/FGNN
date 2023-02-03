@@ -1,10 +1,43 @@
-import pickle                                                                                          
-                                                                                                       
-import numpy as np                                                                                     
-import torch                                                                                           
-from torch.utils.data import Dataset                                                                   
-from torch_geometric.data import Data                                                                  
-from tqdm import tqdm                                                                                  
+import pickle
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torch.utils.data import Dataset
+from torch_geometric.data import Data
+from torch_geometric.utils import get_laplacian, to_undirected
+from torch_sparse import SparseTensor
+from tqdm import tqdm
+
+
+class PETransform(object): 
+    def __init__(self, pos_enc_dim, enc_type='lap'):
+        super().__init__()
+        assert enc_type.lower() in ['rw', 'sym'], 'position encoding type error'
+        
+        self.pos_enc_dim = pos_enc_dim
+        self.enc_type = enc_type
+        
+    def __call__(self, data):
+        n = data.num_nodes
+        EigVal, EigVec = self._position_encoding(data, self.enc_type)
+        position_encoding = EigVec[:,1:self.pos_enc_dim+1]
+        
+        if n <= self.pos_enc_dim:
+            position_encoding = F.pad(position_encoding, (0, self.pos_enc_dim - n + 1), value=float('0'))
+            
+        data.pos_enc = position_encoding
+        return data
+
+    def _position_encoding(self, data, norm=None):
+        L_raw = get_laplacian(to_undirected(data.edge_index, num_nodes=data.num_nodes), 
+                              normalization=norm, num_nodes=data.num_nodes)
+        L = SparseTensor(row=L_raw[0][0], col=L_raw[0][1], value=L_raw[1], sparse_sizes=(data.num_nodes, data.num_nodes)).to_dense()
+
+        EigVal, EigVec  = np.linalg.eigh(L)
+        EigVal = torch.from_numpy(EigVal)
+        EigVec = torch.from_numpy(EigVec)
+        return EigVal, EigVec                                                                                
                                                                                                        
                                                                                                        
 class MyDataset(Dataset):                                                                              
