@@ -3,7 +3,7 @@ from yacs.config import CfgNode as CN
 def get_config(config):
     config = CN()
     config.cache = ''
-    config.random_seed = 1024
+    config.seed = 1024
     config.epoch = 300
     config.device = 'cpu'
 
