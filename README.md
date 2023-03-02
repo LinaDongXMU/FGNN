@@ -2,7 +2,7 @@
 
 The work has been submitted.
 
-And the tittle of the work is "Reliable prediction of the binding affinity of protein-ligand complexes with fusion of graph neural networks and 3D structure-based complex graph".
+And the tittle of the work is "Ligand binding affinity prediction with fusion of graph neural networks and 3D structure-based complex graph".
 
 ## Usage of FGNN
 After download FGNN, you need to do these firstly:
