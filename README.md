@@ -1,4 +1,4 @@
-# FGNN: A scoring function tp predict the binding affinity of protein-ligand complexes 
+# FGNN: A scoring function to predict the binding affinity of protein-ligand complexes 
 
 The work has been submitted.
 
