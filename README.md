@@ -1,6 +1,8 @@
 # FGNN: A scoring function to predict the binding affinity of protein-ligand complexes 
 
 FGNN is a novel deep fusion graph neural networks framework named FGNN to learn the protein–ligand interactions from the 3D structures of protein–ligand complexes.
+![image](https://github.com/LinaDongXMU/FGNN/blob/main/TOC.png)
+
 More information is published in the paper.(https://pubs.rsc.org/en/content/articlelanding/2023/cp/d3cp03651k)
 
 ## Usage of FGNN
