@@ -35,3 +35,6 @@ python train.py
 conda activate model
 
 python predict.py
+
+
+If there are any errors, you may try the code in the 'original version' folder.
